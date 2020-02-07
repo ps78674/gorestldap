@@ -57,15 +57,15 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
-	// if !validatePassword(string(r.AuthenticationSimple()), userData[0].UserPassword[0]) {
-	// 	diagMessage := fmt.Sprintf("wrong password for user '%s'", r.Name())
-	// 	res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
-	// 	res.SetDiagnosticMessage(diagMessage)
-	// 	w.Write(res)
+	if !validatePassword(string(r.AuthenticationSimple()), userData[0].UserPassword[0]) {
+		diagMessage := fmt.Sprintf("wrong password for user '%s'", r.Name())
+		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
+		res.SetDiagnosticMessage(diagMessage)
+		w.Write(res)
 
-	// 	log.Printf("bind error: %s", diagMessage)
-	// 	return
-	// }
+		log.Printf("bind error: %s", diagMessage)
+		return
+	}
 
 	res := ldapserver.NewBindResponse(ldapserver.LDAPResultSuccess)
 	w.Write(res)

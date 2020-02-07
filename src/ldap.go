@@ -63,7 +63,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
-		log.Printf("bind error: %s", diagMessage)
+		log.Printf("client [%d]: bind error: %s", m.Client.Numero, diagMessage)
 		return
 	}
 

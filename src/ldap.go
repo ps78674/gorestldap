@@ -98,7 +98,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	log.Printf("client [%d]: performing search with filter '%s'", m.Client.Numero, r.FilterString())
 
 	sa := new(searchAttributes)
-	if err := expandFilter(m.Client.Numero, r.Filter(), r.FilterString(), sa); err != nil {
+	if err := expandFilter(r.Filter(), r.FilterString(), sa); err != nil {
 		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
 		res.SetDiagnosticMessage(err.Error())
 		w.Write(res)
@@ -179,12 +179,12 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 }
 
 // handle search filter
-func expandFilter(cNum int, filter ldap.Filter, filterString string, sa *searchAttributes) error {
+func expandFilter(filter ldap.Filter, filterString string, sa *searchAttributes) error {
 	switch fmt.Sprintf("%T", filter) {
 	case "message.FilterAnd", "message.FilterOr":
 		items := reflect.ValueOf(filter)
 		for i := 0; i < items.Len(); i++ {
-			if err := expandFilter(cNum, items.Index(i).Interface().(ldap.Filter), filterString, sa); err != nil {
+			if err := expandFilter(items.Index(i).Interface().(ldap.Filter), filterString, sa); err != nil {
 				return err
 			}
 		}
@@ -208,10 +208,10 @@ func expandFilter(cNum int, filter ldap.Filter, filterString string, sa *searchA
 		case "member":
 			sa.member = attrValue
 		default:
-			return fmt.Errorf("client [%d]: unsupported search filter '%s'", cNum, filterString)
+			return fmt.Errorf("unsupported search filter '%s'", filterString)
 		}
 	default:
-		return fmt.Errorf("client [%d]: unsupported message filter type '%s'", cNum, reflect.TypeOf(filter).String())
+		return fmt.Errorf("unsupported message filter type '%s'", reflect.TypeOf(filter).String())
 	}
 
 	return nil

@@ -6,26 +6,23 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/docopt/docopt-go"
 	ldapserver "github.com/ps78674/ldapserver"
 )
 
 var (
-	restURL      string
-	baseDN       string
-	bindAddress  string
-	bindPort     string
-	useTLS       bool
-	serverCert   string
-	serverKey    string
-	logFile      string
-	cacheTimeout time.Duration
-	authToken    string
+	restURL     string
+	baseDN      string
+	bindAddress string
+	bindPort    string
+	useTLS      bool
+	serverCert  string
+	serverKey   string
+	logFile     string
+	authToken   string
 )
 
 var (
@@ -47,7 +44,6 @@ Options:
   --cert <CERTFILE>       path to certifcate [default: server.crt]
   --key <KEYFILE>         path to keyfile [default: server.key]
   -l, --log <FILENAME>    log file path [default: /dev/stdout]
-  -c, --cache <SECONDS>   cache timeout for last user rest request [default: 0]
   -t, --token <TOKEN>     rest authentication token
    
   -h, --help              show this screen
@@ -69,14 +65,6 @@ func init() {
 	serverCert = cmdOpts["--cert"].(string)
 	serverKey = cmdOpts["--key"].(string)
 	logFile = cmdOpts["--log"].(string)
-
-	i, err := strconv.Atoi(cmdOpts["--cache"].(string))
-	if err != nil {
-		fmt.Printf("error converting '--cache' to int: %s\n", err)
-		os.Exit(1)
-	}
-
-	cacheTimeout = time.Duration(i)
 
 	if cmdOpts["--token"] != nil {
 		authToken = cmdOpts["--token"].(string)

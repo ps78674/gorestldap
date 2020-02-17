@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/valyala/fasthttp"
 )
@@ -39,9 +38,6 @@ type restGroupAttrs struct {
 	MemberUID   []string `json:"memberUid"`
 }
 
-var prevUserSearchResult []restUserAttrs
-var prevUserSearchTimestamp time.Time
-
 func doRequest(reqURL string) ([]byte, error) {
 	req := fasthttp.AcquireRequest()
 	resp := fasthttp.AcquireResponse()
@@ -63,13 +59,6 @@ func doRequest(reqURL string) ([]byte, error) {
 
 // get users data from rest
 func getRESTUserData(cNum int, userName string, uidNumber string, ipHostNumber string) (userData []restUserAttrs) {
-	// check cached result
-	// TODO imrove caching for more results (or drop it) ??
-	if time.Since(prevUserSearchTimestamp) < cacheTimeout*time.Second && len(prevUserSearchResult) > 0 && userName == prevUserSearchResult[0].CN[0] {
-		userData = prevUserSearchResult
-		return
-	}
-
 	var urlParameters []string
 
 	if len(userName) > 0 { // need to throw an error if len(username) == 0 ??
@@ -103,13 +92,6 @@ func getRESTUserData(cNum int, userName string, uidNumber string, ipHostNumber s
 	if len(userData) == 0 {
 		log.Printf("client [%d]: error getting API data for user '%s': returned nil\n", cNum, userName)
 		return
-
-	}
-
-	// cache last result
-	if len(userData) == 1 {
-		prevUserSearchResult = userData
-		prevUserSearchTimestamp = time.Now()
 	}
 
 	return

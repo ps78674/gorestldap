@@ -15,14 +15,12 @@ Options:
   --cert <CERTFILE>       path to certifcate [default: server.crt]
   --key <KEYFILE>         path to keyfile [default: server.key]
   -l, --log <FILENAME>    log file path [default: /dev/stdout]
-  -c, --cache <SECONDS>   cache timeout for last user rest request [default: 0]
   -t, --token <TOKEN>     rest authentication token
    
   -h, --help              show this screen
   -v, --version           show version
 
 ```
--c - time to store last REST result for user (if len(result) = 1) - useful for nslcd  
 -t - Django auth token (adds header {"Authorization": "Token `TOKEN`"} to request)  
 
 Example: `REST_AUTH_TOKEN="12345" gorestldap -p 10389 -u https://django.example.org/api -b dc=example,dc=org -c 5`

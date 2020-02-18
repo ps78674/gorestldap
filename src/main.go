@@ -6,23 +6,27 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/docopt/docopt-go"
 	ldapserver "github.com/ps78674/ldapserver"
 )
 
 var (
-	restURL     string
-	baseDN      string
-	bindAddress string
-	bindPort    string
-	useTLS      bool
-	serverCert  string
-	serverKey   string
-	logFile     string
-	authToken   string
+	restURL         string
+	baseDN          string
+	bindAddress     string
+	bindPort        string
+	useTLS          bool
+	serverCert      string
+	serverKey       string
+	logFile         string
+	authToken       string
+	memStoreTimeout time.Duration
+	restData        restAttrs
 )
 
 var (
@@ -33,7 +37,7 @@ var (
 var usage = fmt.Sprintf(`%[1]s: simple LDAP emulator with HTTP REST backend, bind / search support only
 
 Usage:
-  %[1]s [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -c <SECONDS>]
+  %[1]s [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -m <SECONDS>]
 
 Options:
   -u, --url <URL>         rest api url [default: http://localhost/api]
@@ -45,6 +49,7 @@ Options:
   --key <KEYFILE>         path to keyfile [default: server.key]
   -l, --log <FILENAME>    log file path [default: /dev/stdout]
   -t, --token <TOKEN>     rest authentication token
+  -m, --memory <SECONDS>  store REST data in memory and update every <SECONDS> 
    
   -h, --help              show this screen
   -v, --version           show version
@@ -70,6 +75,16 @@ func init() {
 		authToken = cmdOpts["--token"].(string)
 	} else if envToken := os.Getenv("REST_AUTH_TOKEN"); len(authToken) == 0 && len(envToken) > 0 {
 		authToken = envToken
+	}
+
+	if cmdOpts["--memory"] != nil {
+		i, err := strconv.Atoi(cmdOpts["--memory"].(string))
+		if err != nil {
+			fmt.Printf("error converting '--cache' to int: %s\n", err)
+			os.Exit(1)
+		}
+
+		memStoreTimeout = time.Duration(i)
 	}
 }
 
@@ -110,6 +125,16 @@ func main() {
 	if err := <-chErr; err != nil {
 		log.Printf("error starting server: %s\n", err)
 		os.Exit(1)
+	}
+
+	// start in memory data updater
+	if memStoreTimeout > 0 {
+		go func() {
+			for {
+				restData.update(-1)
+				time.Sleep(memStoreTimeout * time.Second)
+			}
+		}()
 	}
 
 	// When CTRL+C, SIGINT and SIGTERM signal occurs

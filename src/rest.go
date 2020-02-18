@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strings"
 
 	"github.com/valyala/fasthttp"
 )
@@ -38,6 +37,16 @@ type restGroupAttrs struct {
 	MemberUID   []string `json:"memberUid"`
 }
 
+type restAttrs struct {
+	Users  []restUserAttrs
+	Groups []restGroupAttrs
+}
+
+func (data *restAttrs) update(cNum int) {
+	data.Users = getRESTUserData(cNum, "")
+	data.Groups = getRESTGroupData(cNum, "")
+}
+
 func doRequest(reqURL string) ([]byte, error) {
 	req := fasthttp.AcquireRequest()
 	resp := fasthttp.AcquireResponse()
@@ -58,23 +67,13 @@ func doRequest(reqURL string) ([]byte, error) {
 }
 
 // get users data from rest
-func getRESTUserData(cNum int, userName string, uidNumber string, ipHostNumber string) (userData []restUserAttrs) {
-	var urlParameters []string
-
-	if len(userName) > 0 { // need to throw an error if len(username) == 0 ??
-		urlParameters = append(urlParameters, fmt.Sprintf("username=%s", userName))
+func getRESTUserData(cNum int, userName string) (userData []restUserAttrs) {
+	reqURL := fmt.Sprintf("%s%s", restURL, urlLDAPUsers)
+	if len(userName) > 0 {
+		reqURL = fmt.Sprintf("%s?username=%s", reqURL, userName)
 	}
 
-	if len(uidNumber) > 0 {
-		urlParameters = append(urlParameters, fmt.Sprintf("uid=%s", uidNumber))
-	}
-
-	if len(ipHostNumber) > 0 {
-		urlParameters = append(urlParameters, fmt.Sprintf("ipHostNumber=%s", ipHostNumber))
-	}
-
-	reqURL := fmt.Sprintf("%s%s?%s", restURL, urlLDAPUsers, strings.Join(urlParameters, "&"))
-	log.Printf("client [%d]: getting API data, url '%s'", cNum, reqURL)
+	log.Printf("client [%d]: getting users API data, url '%s'", cNum, reqURL)
 
 	respData, err := doRequest(reqURL)
 	if err != nil {
@@ -90,7 +89,7 @@ func getRESTUserData(cNum int, userName string, uidNumber string, ipHostNumber s
 	}
 
 	if len(userData) == 0 {
-		log.Printf("client [%d]: error getting API data for user '%s': returned nil\n", cNum, userName)
+		log.Printf("client [%d]: error getting users API data: returned nil\n", cNum)
 		return
 	}
 
@@ -98,23 +97,13 @@ func getRESTUserData(cNum int, userName string, uidNumber string, ipHostNumber s
 }
 
 // get groups data from rest
-func getRESTGroupData(cNum int, groupName string, gidNumber string, memberUID string) (groupData []restGroupAttrs) {
-	var urlParameters []string
-
+func getRESTGroupData(cNum int, groupName string) (groupData []restGroupAttrs) {
+	reqURL := fmt.Sprintf("%s%s", restURL, urlLDAPGroups)
 	if len(groupName) > 0 {
-		urlParameters = append(urlParameters, fmt.Sprintf("name=%s", groupName))
+		reqURL = fmt.Sprintf("%s?name=%s", reqURL, groupName)
 	}
 
-	if len(gidNumber) > 0 {
-		urlParameters = append(urlParameters, fmt.Sprintf("gid=%s", gidNumber))
-	}
-
-	if len(memberUID) > 0 {
-		urlParameters = append(urlParameters, fmt.Sprintf("memberUid=%s", memberUID))
-	}
-
-	reqURL := fmt.Sprintf("%s%s?%s", restURL, urlLDAPGroups, strings.Join(urlParameters, "&"))
-	log.Printf("client [%d]: getting API data, url '%s'", cNum, reqURL)
+	log.Printf("client [%d]: getting groups API data, url '%s'", cNum, reqURL)
 
 	respData, err := doRequest(reqURL)
 	if err != nil {
@@ -130,7 +119,7 @@ func getRESTGroupData(cNum int, groupName string, gidNumber string, memberUID st
 	}
 
 	if len(groupData) == 0 {
-		log.Printf("client [%d]: error getting API data for group '%s': returned nil\n", cNum, groupName)
+		log.Printf("client [%d]: error getting groups API data: returned nil\n", cNum)
 		return
 	}
 

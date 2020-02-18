@@ -16,6 +16,7 @@ Options:
   --key <KEYFILE>         path to keyfile [default: server.key]
   -l, --log <FILENAME>    log file path [default: /dev/stdout]
   -t, --token <TOKEN>     rest authentication token
+  -m, --memory <SECONDS>  store REST data in memory and update every <SECONDS>
    
   -h, --help              show this screen
   -v, --version           show version

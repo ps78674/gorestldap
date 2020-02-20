@@ -96,7 +96,17 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			return
 		}
 
-		if !applySearchFilter(user, r.Filter()) {
+		ok, err := applySearchFilter(user, r.Filter())
+		if err != nil {
+			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
+			res.SetDiagnosticMessage(err.Error())
+			w.Write(res)
+
+			log.Printf("client [%d]: search error: %s", m.Client.Numero, err)
+			return
+		}
+
+		if !ok {
 			continue
 		}
 
@@ -131,7 +141,17 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			return
 		}
 
-		if !applySearchFilter(group, r.Filter()) {
+		ok, err := applySearchFilter(group, r.Filter())
+		if err != nil {
+			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
+			res.SetDiagnosticMessage(err.Error())
+			w.Write(res)
+
+			log.Printf("client [%d]: search error: %s", m.Client.Numero, err)
+			return
+		}
+
+		if !ok {
 			continue
 		}
 
@@ -159,7 +179,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 }
 
 // apply search filter
-func applySearchFilter(o interface{}, f ldap.Filter) bool {
+func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	switch fmt.Sprintf("%T", f) {
 	case "message.FilterEqualityMatch":
 		attrName := strings.ToLower(reflect.ValueOf(f).Field(0).String())
@@ -170,20 +190,20 @@ func applySearchFilter(o interface{}, f ldap.Filter) bool {
 			if attrName == "objectclass" && fmt.Sprintf("%T", o) == "main.restUserAttrs" {
 				switch attrValue {
 				case "posixaccount", "shadowaccount", "person", "user":
-					return true
+					return true, nil
 				}
 			}
 			if attrName == "objectclass" && fmt.Sprintf("%T", o) == "main.restGroupAttrs" {
 				switch attrValue {
 				case "posixgroup", "group":
-					return true
+					return true, nil
 				}
 			}
 
 			if strings.ToLower(rValue.Type().Field(i).Tag.Get("json")) == attrName {
 				for j := 0; j < rValue.Field(i).Len(); j++ {
 					if rValue.Field(i).Index(j).String() == attrValue {
-						return true
+						return true, nil
 					}
 				}
 			}
@@ -193,29 +213,39 @@ func applySearchFilter(o interface{}, f ldap.Filter) bool {
 		for i := 0; i < items.Len(); i++ {
 			filter := items.Index(i).Interface().(ldap.Filter)
 
-			if !applySearchFilter(o, filter) {
-				return false
+			ok, err := applySearchFilter(o, filter)
+			if err != nil {
+				return false, err
+			}
+
+			if !ok {
+				return false, nil
 			}
 		}
-		return true
+		return true, nil
 	case "message.FilterOr":
-		ok := false
+		anyOk := false
 
 		items := reflect.ValueOf(f)
 		for i := 0; i < items.Len(); i++ {
 			filter := items.Index(i).Interface().(ldap.Filter)
 
-			if applySearchFilter(o, filter) {
-				ok = true
+			ok, err := applySearchFilter(o, filter)
+			if err != nil {
+				return false, err
+			}
+
+			if ok {
+				anyOk = true
 			}
 		}
-		if ok {
-			return true
+
+		if anyOk {
+			return true, nil
 		}
 	default:
-		return false
-		// return false, fmt.Errorf("unsupported filter type '%T'", f)
+		return false, fmt.Errorf("unsupported filter type '%T'", f)
 	}
 
-	return false
+	return false, nil
 }

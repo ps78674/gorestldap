@@ -141,6 +141,10 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		e.AddAttribute("cn", ldap.AttributeValue(group.CN[0]))
 		e.AddAttribute("gidNumber", ldap.AttributeValue(group.GIDNumber[0]))
 
+		for _, ou := range group.OU {
+			e.AddAttribute("ou", ldap.AttributeValue(ou))
+		}
+
 		for _, membrUID := range group.MemberUID {
 			e.AddAttribute("memberUid", ldap.AttributeValue(membrUID))
 		}

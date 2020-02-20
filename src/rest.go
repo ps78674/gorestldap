@@ -31,7 +31,7 @@ type restUserAttrs struct {
 
 type restGroupAttrs struct {
 	Description []string `json:"description"`
-	OU          []string `json:"ou"` // not used
+	OU          []string `json:"ou"`
 	CN          []string `json:"cn"`
 	GIDNumber   []string `json:"gidNumber"`
 	MemberUID   []string `json:"memberUid"`

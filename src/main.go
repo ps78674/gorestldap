@@ -47,7 +47,7 @@ Options:
   --tls                   use tls [default: false]
   --cert <CERTFILE>       path to certifcate [default: server.crt]
   --key <KEYFILE>         path to keyfile [default: server.key]
-  -l, --log <FILENAME>    log file path [default: /dev/stdout]
+  -l, --log <FILENAME>    log file path
   -t, --token <TOKEN>     rest authentication token
   -m, --memory <SECONDS>  store REST data in memory and update every <SECONDS> 
    
@@ -69,7 +69,10 @@ func init() {
 	useTLS = cmdOpts["--tls"].(bool)
 	serverCert = cmdOpts["--cert"].(string)
 	serverKey = cmdOpts["--key"].(string)
-	logFile = cmdOpts["--log"].(string)
+
+	if cmdOpts["--log"] != nil {
+		logFile = cmdOpts["--log"].(string)
+	}
 
 	if cmdOpts["--token"] != nil {
 		authToken = cmdOpts["--token"].(string)
@@ -89,15 +92,18 @@ func init() {
 }
 
 func main() {
-	f, err := os.OpenFile(logFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		fmt.Printf("error opening logfile: %s\n", err)
-		os.Exit(1)
-	}
-	defer f.Close()
-
-	log.SetOutput(f)
 	log.SetFlags(5)
+
+	if len(logFile) > 0 {
+		f, err := os.OpenFile(logFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		if err != nil {
+			fmt.Printf("error opening logfile: %s\n", err)
+			os.Exit(1)
+		}
+
+		defer f.Close()
+		log.SetOutput(f)
+	}
 
 	//Create a new LDAP Server
 	server := ldapserver.NewServer()

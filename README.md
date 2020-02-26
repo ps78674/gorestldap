@@ -14,7 +14,7 @@ Options:
   --tls                   use tls [default: false]
   --cert <CERTFILE>       path to certifcate [default: server.crt]
   --key <KEYFILE>         path to keyfile [default: server.key]
-  -l, --log <FILENAME>    log file path [default: /dev/stdout]
+  -l, --log <FILENAME>    log file path
   -t, --token <TOKEN>     rest authentication token
   -m, --memory <SECONDS>  store REST data in memory and update every <SECONDS>
    

@@ -135,13 +135,17 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		e.AddAttribute("gidNumber", ldap.AttributeValue(user.GIDNumber[0]))
 		// e.AddAttribute("ibm-chassisRole", ldap.AttributeValue("IBMRBSPermissions=010000000000")) // TESTING - attribute for lenovo lxcc (bmc ldap login)
 
+		attrs := []ldap.AttributeValue{}
 		for _, sshKey := range user.SSHPublicKey {
-			e.AddAttribute("sshPublicKey", ldap.AttributeValue(sshKey))
+			attrs = append(attrs, ldap.AttributeValue(sshKey))
 		}
+		e.AddAttribute("sshPublicKey", attrs...)
 
+		attrs = []ldap.AttributeValue{}
 		for _, hostIP := range user.IPHostNumber {
-			e.AddAttribute("ipHostNumber", ldap.AttributeValue(hostIP))
+			attrs = append(attrs, ldap.AttributeValue(hostIP))
 		}
+		e.AddAttribute("ipHostNumber", attrs...)
 
 		w.Write(e)
 	}
@@ -171,13 +175,17 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		e.AddAttribute("cn", ldap.AttributeValue(group.CN[0]))
 		e.AddAttribute("gidNumber", ldap.AttributeValue(group.GIDNumber[0]))
 
+		attrs := []ldap.AttributeValue{}
 		for _, ou := range group.OU {
-			e.AddAttribute("ou", ldap.AttributeValue(ou))
+			attrs = append(attrs, ldap.AttributeValue(ou))
 		}
+		e.AddAttribute("ou", attrs...)
 
+		attrs = []ldap.AttributeValue{}
 		for _, membrUID := range group.MemberUID {
-			e.AddAttribute("memberUid", ldap.AttributeValue(membrUID))
+			attrs = append(attrs, ldap.AttributeValue(membrUID))
 		}
+		e.AddAttribute("memberUid", attrs...)
 
 		w.Write(e)
 	}

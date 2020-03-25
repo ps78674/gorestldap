@@ -122,7 +122,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 		e := ldapserver.NewSearchResultEntry(fmt.Sprintf("cn=%s,%s", user.CN[0], r.BaseObject()))
 		e.AddAttribute("cn", ldap.AttributeValue(user.CN[0]))
-		e.AddAttribute("objectClass", "posixAccount", "shadowAccount", "person", "user")
+		e.AddAttribute("objectClass", "posixAccount", "shadowAccount", "organizationalPerson", "inetOrgPerson", "person")
 		e.AddAttribute("homeDirectory", ldap.AttributeValue(user.HomeDirectory[0]))
 		e.AddAttribute("uid", ldap.AttributeValue(user.UID[0]))
 		e.AddAttribute("uidNumber", ldap.AttributeValue(user.UIDNumber[0]))
@@ -199,13 +199,13 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 		for i := 0; i < rValue.Type().NumField(); i++ {
 			if attrName == "objectclass" && fmt.Sprintf("%T", o) == "main.restUserAttrs" {
 				switch attrValue {
-				case "posixaccount", "shadowaccount", "person", "user":
+				case "posixaccount", "shadowaccount", "organizationalPerson", "inetOrgPerson", "person":
 					return true, nil
 				}
 			}
 			if attrName == "objectclass" && fmt.Sprintf("%T", o) == "main.restGroupAttrs" {
 				switch attrValue {
-				case "posixgroup", "group":
+				case "posixgroup":
 					return true, nil
 				}
 			}

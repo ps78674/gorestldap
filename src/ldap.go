@@ -253,6 +253,13 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 		if anyOk {
 			return true, nil
 		}
+	case "message.FilterPresent":
+		rValue := reflect.ValueOf(o)
+		for i := 0; i < rValue.Type().NumField(); i++ {
+			if strings.ToLower(rValue.Type().Field(i).Tag.Get("json")) == strings.ToLower(reflect.ValueOf(f).String()) && rValue.Field(i).Len() > 0 {
+				return true, nil
+			}
+		}
 	default:
 		return false, fmt.Errorf("unsupported filter type '%T'", f)
 	}

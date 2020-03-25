@@ -109,7 +109,8 @@ binddn cn=igor,dc=example,dc=org
 bindpw 1234567890
 ssl off
 filter passwd (objectClass=posixAccount)
-filter shadow (objectClass=posixAccount)
+filter shadow (objectClass=shadowAccount)
+filter group (objectClass=posixGroup)
 #filter passwd (&(objectClass=posixAccount)(ipHostNumber=SERVER_IP_ADDRES))
 #filter shadow (&(objectClass=posixAccount)(ipHostNumber=SERVER_IP_ADDRES))
 ```

@@ -42,9 +42,9 @@ type restAttrs struct {
 	Groups []restGroupAttrs
 }
 
-func (data *restAttrs) update(cNum int) {
-	data.Users = getRESTUserData(cNum, "")
-	data.Groups = getRESTGroupData(cNum, "")
+func (data *restAttrs) update(cNum int, cn string) {
+	data.Users = getRESTUserData(cNum, cn)
+	data.Groups = getRESTGroupData(cNum, cn)
 }
 
 func doRequest(reqURL string) ([]byte, error) {

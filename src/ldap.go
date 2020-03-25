@@ -98,7 +98,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 	// update data manually
 	if memStoreTimeout <= 0 {
-		restData.update(m.Client.Numero)
+		restData.update(m.Client.Numero, "")
 	}
 
 	for _, user := range restData.Users {
@@ -273,4 +273,100 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	}
 
 	return false, nil
+}
+
+func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
+	stop := false
+	go func() {
+		<-m.Done
+		log.Printf("client [%d]: leaving handleCompare...", m.Client.Numero)
+		stop = true
+	}()
+
+	r := m.GetCompareRequest()
+	log.Printf("client [%d]: performing compare '%s' for dn '%s'", m.Client.Numero, r.Ava(), r.Entry())
+
+	if !strings.HasSuffix(string(r.Entry()), baseDN) {
+		diagMessage := fmt.Sprintf("entry must end with basedn '%s'", baseDN)
+		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultUnwillingToPerform)
+		res.SetDiagnosticMessage(diagMessage)
+		w.Write(res)
+
+		log.Printf("client [%d]: compare error: %s", m.Client.Numero, diagMessage)
+		return
+	}
+
+	compareEntry := strings.SplitN(string(strings.TrimSuffix(string(r.Entry()), fmt.Sprintf(",%s", baseDN))), "=", 2)
+	compareAttrName := compareEntry[0]
+	compareAttrValue := compareEntry[1]
+
+	if compareAttrName != "cn" {
+		diagMessage := fmt.Sprintf("entry must look like 'cn=<COMMON_NAME>,%s'", baseDN)
+		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultUnwillingToPerform)
+		res.SetDiagnosticMessage(diagMessage)
+		w.Write(res)
+
+		log.Printf("client [%d]: compare error: %s", m.Client.Numero, diagMessage)
+		return
+	}
+
+	if memStoreTimeout <= 0 {
+		restData.update(m.Client.Numero, compareAttrValue)
+	}
+
+	for _, user := range restData.Users {
+		if stop {
+			return
+		}
+
+		if user.CN[0] != compareAttrValue {
+			continue
+		}
+
+		if doCompare(user, string(r.Ava().AttributeDesc()), string(r.Ava().AssertionValue())) {
+			res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareTrue)
+			w.Write(res)
+
+			log.Printf("client [%d]: compare '%s:%s' for dn '%s' TRUE", m.Client.Numero, r.Ava().AttributeDesc(), r.Ava().AssertionValue(), r.Entry())
+			return
+		}
+	}
+
+	for _, group := range restData.Groups {
+		if stop {
+			return
+		}
+
+		if group.CN[0] != compareAttrValue {
+			continue
+		}
+
+		if doCompare(group, string(r.Ava().AttributeDesc()), string(r.Ava().AssertionValue())) {
+			res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareTrue)
+			w.Write(res)
+
+			log.Printf("client [%d]: compare '%s:%s' for dn '%s' TRUE", m.Client.Numero, r.Ava().AttributeDesc(), r.Ava().AssertionValue(), r.Entry())
+			return
+		}
+	}
+
+	res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareFalse)
+	w.Write(res)
+
+	log.Printf("client [%d]: compare '%s for dn '%s' FALSE", m.Client.Numero, r.Ava(), r.Entry())
+}
+
+func doCompare(o interface{}, attrName string, attrValue string) bool {
+	rValue := reflect.ValueOf(o)
+	for i := 0; i < rValue.Type().NumField(); i++ {
+		if strings.ToLower(rValue.Type().Field(i).Tag.Get("json")) == strings.ToLower(attrName) {
+			for j := 0; j < rValue.Field(i).Len(); j++ {
+				if rValue.Field(i).Index(j).String() == attrValue {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
 }

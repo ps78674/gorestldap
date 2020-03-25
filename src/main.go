@@ -114,6 +114,7 @@ func main() {
 	routes.Bind(handleBind)
 	routes.Search(handleSearch).BaseDn(baseDN)
 	routes.Search(handleSearchOther)
+	routes.Compare(handleCompare)
 
 	//Attach routes to server
 	server.Handle(routes)
@@ -138,7 +139,7 @@ func main() {
 	if memStoreTimeout > 0 {
 		go func() {
 			for {
-				restData.update(-1)
+				restData.update(-1, "")
 				time.Sleep(memStoreTimeout * time.Second)
 			}
 		}()

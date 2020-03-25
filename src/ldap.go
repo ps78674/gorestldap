@@ -23,6 +23,16 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
+	if !strings.HasSuffix(string(r.Name()), baseDN) {
+		diagMessage := fmt.Sprintf("binddn must end with basedn '%s'", baseDN)
+		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
+		res.SetDiagnosticMessage(diagMessage)
+		w.Write(res)
+
+		log.Printf("client [%d]: bind error: %s", m.Client.Numero, diagMessage)
+		return
+	}
+
 	bindDNParts := strings.Split(strings.TrimSuffix(string(r.Name()), fmt.Sprintf(",%s", baseDN)), ",")
 	if len(bindDNParts) != 1 || !(strings.HasPrefix(bindDNParts[0], "cn=") || strings.HasPrefix(bindDNParts[0], "uid=")) {
 		diagMessage := fmt.Sprintf("wrong binddn '%s'", r.Name())

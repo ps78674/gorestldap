@@ -92,7 +92,7 @@ func init() {
 }
 
 func main() {
-	log.SetFlags(5)
+	log.SetFlags(0)
 
 	if len(logFile) > 0 {
 		f, err := os.OpenFile(logFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
@@ -103,6 +103,7 @@ func main() {
 
 		defer f.Close()
 		log.SetOutput(f)
+		log.SetFlags(log.LstdFlags)
 	}
 
 	//Create a new LDAP Server
@@ -113,6 +114,7 @@ func main() {
 	routes.Bind(handleBind)
 	routes.Search(handleSearch).BaseDn(baseDN)
 	routes.Search(handleSearchOther)
+	routes.Compare(handleCompare)
 
 	//Attach routes to server
 	server.Handle(routes)
@@ -137,7 +139,7 @@ func main() {
 	if memStoreTimeout > 0 {
 		go func() {
 			for {
-				restData.update(-1)
+				restData.update(-1, "")
 				time.Sleep(memStoreTimeout * time.Second)
 			}
 		}()

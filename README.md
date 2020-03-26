@@ -1,7 +1,7 @@
 ## **Simple LDAP server with REST backend.**
 ### **Usage**
 ```
-gorestldap: simple LDAP emulator with HTTP REST backend, bind / search support only
+gorestldap: simple LDAP emulator with HTTP REST backend, support bind / search / compare operations
 
 Usage:
   gorestldap [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -c <SECONDS>]
@@ -22,9 +22,9 @@ Options:
   -v, --version           show version
 
 ```
--t - Django auth token (adds header {"Authorization": "Token `TOKEN`"} to request)  
+-t - Django auth token (adds header {"Authorization": "Token `<TOKEN>`"} to request), may be replaced with env var `REST_AUTH_TOKEN`  
 
-Example: `REST_AUTH_TOKEN="12345" gorestldap -p 10389 -u https://django.example.org/api -b dc=example,dc=org -c 5`
+Example: `REST_AUTH_TOKEN="12345" gorestldap -p 10389 -u https://django.example.org/api -b dc=example,dc=org`
 
 ### **API endpoints**
 

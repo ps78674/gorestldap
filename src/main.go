@@ -34,7 +34,7 @@ var (
 	programName   = filepath.Base(os.Args[0])
 )
 
-var usage = fmt.Sprintf(`%[1]s: simple LDAP emulator with HTTP REST backend, bind / search support only
+var usage = fmt.Sprintf(`%[1]s: simple LDAP emulator with HTTP REST backend, support bind / search / compare operations
 
 Usage:
   %[1]s [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -m <SECONDS>]

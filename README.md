@@ -4,13 +4,15 @@
 gorestldap: simple LDAP emulator with HTTP REST backend, support bind / search / compare operations
 
 Usage:
-  gorestldap [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -t <TOKEN> -c <SECONDS>]
+  gorestldap [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (-P <PORT>|--nocallback) (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -t <TOKEN> -m <SECONDS>]
 
 Options:
   -u, --url <URL>         rest api url [default: http://localhost/api]
   -b, --basedn <BASEDN>   server base dn [default: dc=example,dc=org]
   -a, --addr <ADDRESS>    server address [default: 0.0.0.0]
   -p, --port <PORT>       server port [default: 389]
+  -P, --httpport <PORT>   http port for callback [default: 8080]
+  --nocallback            disable http callback [default: false]
   --tls                   use tls [default: false]
   --cert <CERTFILE>       path to certifcate [default: server.crt]
   --key <KEYFILE>         path to keyfile [default: server.key]
@@ -23,8 +25,10 @@ Options:
 
 ```
 -t - Django auth token (adds header {"Authorization": "Token `<TOKEN>`"} to request), may be replaced with env var `REST_AUTH_TOKEN`  
+Example: `REST_AUTH_TOKEN="12345" gorestldap -p 10389 -u https://django.example.org/api -b dc=example,dc=org -m 300`
 
-Example: `REST_AUTH_TOKEN="12345" gorestldap -p 10389 -u https://django.example.org/api -b dc=example,dc=org`
+Callback url may be used for in-memory user/group updating  
+Example: `curl localhost:8080/callback -X POST -H "Content-Type: application/json" -d '{"type":"user","cn":"igor"}'`
 
 ### **API endpoints**
 

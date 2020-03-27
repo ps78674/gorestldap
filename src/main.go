@@ -13,6 +13,7 @@ import (
 
 	"github.com/docopt/docopt-go"
 	ldapserver "github.com/ps78674/ldapserver"
+	"github.com/valyala/fasthttp"
 )
 
 var (
@@ -20,6 +21,8 @@ var (
 	baseDN          string
 	bindAddress     string
 	bindPort        string
+	httpPort        string
+	noCallback      bool
 	useTLS          bool
 	serverCert      string
 	serverKey       string
@@ -37,19 +40,21 @@ var (
 var usage = fmt.Sprintf(`%[1]s: simple LDAP emulator with HTTP REST backend, support bind / search / compare operations
 
 Usage:
-  %[1]s [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -t <TOKEN> -m <SECONDS>]
+  %[1]s [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (-P <PORT>|--nocallback) (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -t <TOKEN> -m <SECONDS>]
 
 Options:
   -u, --url <URL>         rest api url [default: http://localhost/api]
   -b, --basedn <BASEDN>   server base dn [default: dc=example,dc=org]
   -a, --addr <ADDRESS>    server address [default: 0.0.0.0]
   -p, --port <PORT>       server port [default: 389]
+  -P, --httpport <PORT>   http port (for callback) [default: 8080]
+  --nocallback            disable http callback [default: false]
   --tls                   use tls [default: false]
   --cert <CERTFILE>       path to certifcate [default: server.crt]
   --key <KEYFILE>         path to keyfile [default: server.key]
   -l, --log <FILENAME>    log file path
   -t, --token <TOKEN>     rest authentication token
-  -m, --memory <SECONDS>  store REST data in memory and update every <SECONDS> 
+  -m, --memory <SECONDS>  store REST data in memory and update every <SECONDS>
    
   -h, --help              show this screen
   -v, --version           show version
@@ -66,6 +71,8 @@ func init() {
 	baseDN = strings.ToLower(cmdOpts["--basedn"].(string))
 	bindAddress = cmdOpts["--addr"].(string)
 	bindPort = cmdOpts["--port"].(string)
+	httpPort = cmdOpts["--httpport"].(string)
+	noCallback = cmdOpts["--nocallback"].(bool)
 	useTLS = cmdOpts["--tls"].(bool)
 	serverCert = cmdOpts["--cert"].(string)
 	serverKey = cmdOpts["--key"].(string)
@@ -107,7 +114,7 @@ func main() {
 	}
 
 	//Create a new LDAP Server
-	server := ldapserver.NewServer()
+	ldapServer := ldapserver.NewServer()
 
 	//Create routes bindings
 	routes := ldapserver.NewRouteMux()
@@ -117,17 +124,17 @@ func main() {
 	routes.Compare(handleCompare)
 
 	//Attach routes to server
-	server.Handle(routes)
+	ldapServer.Handle(routes)
 
 	// listen and serve
 	chErr := make(chan error)
 	listenOn := fmt.Sprintf("%s:%s", bindAddress, bindPort)
 	if !useTLS {
 		log.Printf("starting ldap server on '%s'", listenOn)
-		go server.ListenAndServe(listenOn, chErr)
+		go ldapServer.ListenAndServe(listenOn, chErr)
 	} else {
 		log.Printf("starting ldaps server on '%s'", listenOn)
-		go server.ListenAndServeTLS(listenOn, serverCert, serverKey, chErr)
+		go ldapServer.ListenAndServeTLS(listenOn, serverCert, serverKey, chErr)
 	}
 
 	if err := <-chErr; err != nil {
@@ -135,15 +142,47 @@ func main() {
 		os.Exit(1)
 	}
 
+	var httpServer fasthttp.Server
+	if memStoreTimeout <= 0 {
+		log.Println("disabling http callback, because in-memory mode not enabled")
+		noCallback = true
+	}
+
+	if !noCallback {
+		chErr := make(chan error)
+		listenOn := fmt.Sprintf("%s:%s", bindAddress, httpPort)
+		log.Printf("starting http server on '%s'", listenOn)
+
+		go func() {
+			if err := listenAndServeHTTP(&httpServer, listenOn, chErr); err != nil {
+				log.Printf("http server error: %s\n", err)
+			}
+		}()
+
+		if err := <-chErr; err != nil {
+			log.Printf("error starting server: %s\n", err)
+			os.Exit(1)
+		}
+	}
+
 	// start in memory data updater
 	if memStoreTimeout > 0 {
 		go func() {
 			for {
-				restData.update(-1, "")
+				restData.update(-1, "", "")
 				time.Sleep(memStoreTimeout * time.Second)
 			}
 		}()
 	}
+
+	go func() {
+		chUsr := make(chan os.Signal)
+		for {
+			signal.Notify(chUsr, syscall.SIGUSR1)
+			<-chUsr
+			go restData.update(-3, "", "")
+		}
+	}()
 
 	// When CTRL+C, SIGINT and SIGTERM signal occurs
 	// Then stop server gracefully
@@ -152,5 +191,6 @@ func main() {
 	<-ch
 	close(ch)
 
-	server.Stop()
+	httpServer.Shutdown()
+	ldapServer.Stop()
 }

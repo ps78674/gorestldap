@@ -45,7 +45,17 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}
 
 	userName := strings.TrimPrefix(strings.TrimPrefix(bindDNParts[0], "cn="), "uid=")
-	userData := getRESTUserData(m.Client.Numero, userName)
+	userData := []restUserAttrs{}
+	if memStoreTimeout <= 0 {
+		userData = getRESTUserData(m.Client.Numero, userName)
+	} else {
+		for _, u := range restData.Users {
+			if u.CN[0] == userName {
+				userData = append(userData, u)
+				break
+			}
+		}
+	}
 
 	if len(userData) == 0 {
 		diagMessage := fmt.Sprintf("user '%s' not found", userName)
@@ -98,7 +108,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 	// update data manually
 	if memStoreTimeout <= 0 {
-		restData.update(m.Client.Numero, "")
+		restData.update(m.Client.Numero, "", "")
 	}
 
 	for _, user := range restData.Users {
@@ -133,7 +143,6 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		e.AddAttribute("userPassword", ldap.AttributeValue(user.UserPassword[0]))
 		e.AddAttribute("loginShell", ldap.AttributeValue(user.LoginShell[0]))
 		e.AddAttribute("gidNumber", ldap.AttributeValue(user.GIDNumber[0]))
-		// e.AddAttribute("ibm-chassisRole", ldap.AttributeValue("IBMRBSPermissions=010000000000")) // TESTING - attribute for lenovo lxcc (bmc ldap login)
 
 		attrs := []ldap.AttributeValue{}
 		for _, sshKey := range user.SSHPublicKey {
@@ -311,7 +320,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}
 
 	if memStoreTimeout <= 0 {
-		restData.update(m.Client.Numero, compareAttrValue)
+		restData.update(m.Client.Numero, compareAttrValue, "")
 	}
 
 	for _, user := range restData.Users {

@@ -4,12 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/valyala/fasthttp"
 )
 
 const (
-	urlLDAPUsers  = "/ldap/user"
+	urlLDAPUsers  = "/ldap/user?CustomField=true"
 	urlLDAPGroups = "/ldap/group"
 )
 
@@ -42,9 +43,54 @@ type restAttrs struct {
 	Groups []restGroupAttrs
 }
 
-func (data *restAttrs) update(cNum int, cn string) {
-	data.Users = getRESTUserData(cNum, cn)
-	data.Groups = getRESTGroupData(cNum, cn)
+var m sync.Mutex
+
+func (data *restAttrs) update(cNum int, cn string, oType string) {
+	m.Lock()
+	defer m.Unlock()
+
+	if oType == "" || oType == "user" {
+		if len(data.Users) == 0 {
+			data.Users = getRESTUserData(cNum, cn)
+		} else {
+			for _, newUser := range getRESTUserData(cNum, cn) {
+				found := false
+
+				for i, exUser := range data.Users {
+					if newUser.CN[0] == exUser.CN[0] {
+						data.Users[i] = newUser
+						found = true
+						break
+					}
+				}
+
+				if !found {
+					data.Users = append(data.Users, newUser)
+				}
+			}
+		}
+	}
+	if oType == "" || oType == "group" {
+		if len(data.Groups) == 0 {
+			data.Groups = getRESTGroupData(cNum, cn)
+		} else {
+			for _, newGroup := range getRESTGroupData(cNum, cn) {
+				found := false
+
+				for i, exGroup := range data.Groups {
+					if newGroup.CN[0] == exGroup.CN[0] {
+						data.Groups[i] = newGroup
+						found = true
+						break
+					}
+				}
+
+				if !found {
+					data.Groups = append(data.Groups, newGroup)
+				}
+			}
+		}
+	}
 }
 
 func doRequest(reqURL string) ([]byte, error) {

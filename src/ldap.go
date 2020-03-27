@@ -45,7 +45,17 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}
 
 	userName := strings.TrimPrefix(strings.TrimPrefix(bindDNParts[0], "cn="), "uid=")
-	userData := getRESTUserData(m.Client.Numero, userName)
+	userData := []restUserAttrs{}
+	if memStoreTimeout <= 0 {
+		userData = getRESTUserData(m.Client.Numero, userName)
+	} else {
+		for _, u := range restData.Users {
+			if u.CN[0] == userName {
+				userData = append(userData, u)
+				break
+			}
+		}
+	}
 
 	if len(userData) == 0 {
 		diagMessage := fmt.Sprintf("user '%s' not found", userName)

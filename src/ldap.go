@@ -45,19 +45,20 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}
 
 	userName := strings.TrimPrefix(strings.TrimPrefix(bindDNParts[0], "cn="), "uid=")
-	userData := []restUserAttrs{}
+
 	if memStoreTimeout <= 0 {
-		userData = getRESTUserData(m.Client.Numero, userName)
-	} else {
-		for _, u := range restData.Users {
-			if u.CN[0] == userName {
-				userData = append(userData, u)
-				break
-			}
+		restData.update(m.Client.Numero, userName, "user")
+	}
+
+	userData := restUserAttrs{}
+	for _, u := range restData.Users {
+		if u.CN[0] == userName {
+			userData = u
+			break
 		}
 	}
 
-	if len(userData) == 0 {
+	if len(userData.CN) == 0 {
 		diagMessage := fmt.Sprintf("user '%s' not found", userName)
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
 		res.SetDiagnosticMessage(diagMessage)
@@ -67,7 +68,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
-	if !validatePassword(string(r.AuthenticationSimple()), userData[0].UserPassword[0]) {
+	if !validatePassword(string(r.AuthenticationSimple()), userData.UserPassword[0]) {
 		diagMessage := fmt.Sprintf("wrong password for user '%s'", r.Name())
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
 		res.SetDiagnosticMessage(diagMessage)

@@ -5,9 +5,11 @@ gorestldap: simple LDAP emulator with HTTP REST backend, support bind / search /
 
 Usage:
   gorestldap [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (-P <PORT>|--nocallback) (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -t <TOKEN> -m <SECONDS>]
+  gorestldap [-f <FILE> -b <BASEDN> -a <ADDRESS> -p <PORT> (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -m <SECONDS>]
 
 Options:
   -u, --url <URL>         rest api url [default: http://localhost/api]
+  -f, --file <FILE>       file with rest data
   -b, --basedn <BASEDN>   server base dn [default: dc=example,dc=org]
   -a, --addr <ADDRESS>    server address [default: 0.0.0.0]
   -p, --port <PORT>       server port [default: 389]
@@ -29,6 +31,14 @@ Example: `REST_AUTH_TOKEN="12345" gorestldap -p 10389 -u https://django.example.
 
 Callback url may be used for in-memory user/group updating  
 Example: `curl localhost:8080/callback -X POST -H "Content-Type: application/json" -d '{"type":"user","cn":"igor"}'`
+
+### **File JSON structure**
+```
+[
+    "users":[...],
+    "groups":[...],
+]
+```
 
 ### **API endpoints**
 

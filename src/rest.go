@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"sync"
 
@@ -49,6 +50,37 @@ func (data *restAttrs) update(cNum int, cn string, oType string) {
 	m.Lock()
 	defer m.Unlock()
 
+	if len(restFile) > 0 {
+		log.Printf("client [%d]: getting data from file '%s'", cNum, restFile)
+
+		fileContents, err := ioutil.ReadFile(restFile)
+		if err != nil {
+			log.Printf("client [%d]: error opening file: '%s'", cNum, err)
+			return
+		}
+
+		fileData := []restAttrs{}
+		if err := json.Unmarshal(fileContents, &fileData); err != nil {
+			log.Printf("client [%d]: error unmarshalling file data: %s\n", cNum, err)
+		}
+
+		newData := restAttrs{}
+		for _, d := range fileData {
+			newData.Users = append(newData.Users, d.Users...)
+			newData.Groups = append(newData.Groups, d.Groups...)
+		}
+
+		if len(newData.Users) > 0 {
+			data.Users = newData.Users
+		}
+
+		if len(newData.Groups) > 0 {
+			data.Groups = newData.Groups
+		}
+
+		return
+	}
+
 	if oType == "" || oType == "user" {
 		if len(data.Users) == 0 {
 			data.Users = getRESTUserData(cNum, cn)
@@ -78,7 +110,7 @@ func (data *restAttrs) update(cNum int, cn string, oType string) {
 				found := false
 
 				for i, exGroup := range data.Groups {
-					if newGroup.CN[0] == exGroup.CN[0] {
+					if newGroup.CN[0] == exGroup.CN[0] && newGroup.OU[0] == exGroup.OU[0] {
 						data.Groups[i] = newGroup
 						found = true
 						break
@@ -116,10 +148,10 @@ func doRequest(reqURL string) ([]byte, error) {
 func getRESTUserData(cNum int, userName string) (userData []restUserAttrs) {
 	reqURL := fmt.Sprintf("%s%s", restURL, urlLDAPUsers)
 	if len(userName) > 0 {
-		reqURL = fmt.Sprintf("%s?username=%s", reqURL, userName)
+		reqURL = fmt.Sprintf("%s&username=%s", reqURL, userName)
 	}
 
-	log.Printf("client [%d]: getting users API data, url '%s'", cNum, reqURL)
+	log.Printf("client [%d]: getting users data, url '%s'", cNum, reqURL)
 
 	respData, err := doRequest(reqURL)
 	if err != nil {
@@ -135,7 +167,7 @@ func getRESTUserData(cNum int, userName string) (userData []restUserAttrs) {
 	}
 
 	if len(userData) == 0 {
-		log.Printf("client [%d]: error getting users API data: returned nil\n", cNum)
+		log.Printf("client [%d]: error getting users data from API: returned nil\n", cNum)
 		return
 	}
 
@@ -149,7 +181,7 @@ func getRESTGroupData(cNum int, groupName string) (groupData []restGroupAttrs) {
 		reqURL = fmt.Sprintf("%s?name=%s", reqURL, groupName)
 	}
 
-	log.Printf("client [%d]: getting groups API data, url '%s'", cNum, reqURL)
+	log.Printf("client [%d]: getting groups data, url '%s'", cNum, reqURL)
 
 	respData, err := doRequest(reqURL)
 	if err != nil {
@@ -165,7 +197,7 @@ func getRESTGroupData(cNum int, groupName string) (groupData []restGroupAttrs) {
 	}
 
 	if len(groupData) == 0 {
-		log.Printf("client [%d]: error getting groups API data: returned nil\n", cNum)
+		log.Printf("client [%d]: error getting groups data from API: returned nil\n", cNum)
 		return
 	}
 

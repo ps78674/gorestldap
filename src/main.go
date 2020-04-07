@@ -18,6 +18,7 @@ import (
 
 var (
 	restURL         string
+	restFile        string
 	baseDN          string
 	bindAddress     string
 	bindPort        string
@@ -41,9 +42,11 @@ var usage = fmt.Sprintf(`%[1]s: simple LDAP emulator with HTTP REST backend, sup
 
 Usage:
   %[1]s [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (-P <PORT>|--nocallback) (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -t <TOKEN> -m <SECONDS>]
+  %[1]s [-f <FILE> -b <BASEDN> -a <ADDRESS> -p <PORT> (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -m <SECONDS>]
 
 Options:
   -u, --url <URL>         rest api url [default: http://localhost/api]
+  -f, --file <FILE>       file with json data
   -b, --basedn <BASEDN>   server base dn [default: dc=example,dc=org]
   -a, --addr <ADDRESS>    server address [default: 0.0.0.0]
   -p, --port <PORT>       server port [default: 389]
@@ -76,6 +79,10 @@ func init() {
 	useTLS = cmdOpts["--tls"].(bool)
 	serverCert = cmdOpts["--cert"].(string)
 	serverKey = cmdOpts["--key"].(string)
+
+	if cmdOpts["--file"] != nil {
+		restFile = cmdOpts["--file"].(string)
+	}
 
 	if cmdOpts["--log"] != nil {
 		logFile = cmdOpts["--log"].(string)
@@ -142,12 +149,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	var httpServer fasthttp.Server
-	if memStoreTimeout <= 0 {
+	if len(restFile) > 0 {
+		noCallback = true
+	}
+
+	if memStoreTimeout <= 0 && !noCallback {
 		log.Println("disabling http callback, because in-memory mode not enabled")
 		noCallback = true
 	}
 
+	var httpServer fasthttp.Server
 	if !noCallback {
 		chErr := make(chan error)
 		listenOn := fmt.Sprintf("%s:%s", bindAddress, httpPort)
@@ -173,16 +184,16 @@ func main() {
 				time.Sleep(memStoreTimeout * time.Second)
 			}
 		}()
-	}
 
-	go func() {
-		chUsr := make(chan os.Signal)
-		for {
-			signal.Notify(chUsr, syscall.SIGUSR1)
-			<-chUsr
-			go restData.update(-3, "", "")
-		}
-	}()
+		go func() {
+			chUsr := make(chan os.Signal)
+			for {
+				signal.Notify(chUsr, syscall.SIGUSR1)
+				<-chUsr
+				go restData.update(-3, "", "")
+			}
+		}()
+	}
 
 	// When CTRL+C, SIGINT and SIGTERM signal occurs
 	// Then stop server gracefully

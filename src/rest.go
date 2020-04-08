@@ -110,7 +110,7 @@ func (data *restAttrs) update(cNum int, cn string, oType string) {
 				found := false
 
 				for i, exGroup := range data.Groups {
-					if newGroup.CN[0] == exGroup.CN[0] && newGroup.OU[0] == exGroup.OU[0] {
+					if newGroup.CN[0] == exGroup.CN[0] {
 						data.Groups[i] = newGroup
 						found = true
 						break

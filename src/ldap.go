@@ -183,20 +183,84 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		sizeCounter++
 	}
 
-	for _, e := range entries {
-		w.Write(e)
+	// get 1.2.840.113556.1.4.319 from requested controls
+	var cp ldap.ControlPaging
+	var cpCriticality ldap.BOOLEAN
+
+	if m.Controls() != nil {
+		for _, c := range *m.Controls() {
+			if c.ControlType().String() == ldap.ControlTypePaging {
+				var err error
+				cp, err = ldap.ReadControlPaging(ldap.NewBytes(0, c.ControlValue().Bytes()))
+				if err != nil {
+					log.Printf("client [%d]: error reading control paging: %s", m.Client.Numero, err)
+				}
+				cpCriticality = c.Criticality()
+				break
+			}
+		}
 	}
 
-	if r.SizeLimit().Int() > 0 && sizeCounter >= r.SizeLimit().Int() {
-		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSizeLimitExceeded)
-		responseMessage := ldap.NewLDAPMessageWithProtocolOp(res)
-		w.WriteMessage(responseMessage)
-		log.Printf(fmt.Sprintf("client [%d]: search with filter '%s' exceeded sizeLimit (%d)", m.Client.Numero, r.FilterString(), r.SizeLimit()))
+	// if paging requested -> return results in pages
+	if cp.PageSize().Int() > 0 {
+		c := 0
+		for {
+			w.Write(entries[m.Client.EntriesSent]) // m.Client.EntriesSent - how many entries already been sent
+			m.Client.EntriesSent++
+			c++
+
+			if c == cp.PageSize().Int() || m.Client.EntriesSent == len(entries) {
+				var cpCookie ldap.OCTETSTRING
+				if m.Client.EntriesSent != len(entries) {
+					cpCookie = ldap.OCTETSTRING(programName) // use programName instead of random cookie
+				}
+
+				ncp := ldap.NewControlPaging(ldap.INTEGER(len(entries)), cpCookie)
+
+				b, err := ncp.WriteControlPaging()
+				if err != nil {
+					diagMessage := fmt.Sprintf("error encoding control paging: %s", err)
+					res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultOther)
+					res.SetDiagnosticMessage(diagMessage)
+					w.Write(res)
+
+					log.Printf("client [%d]: search error: %s", m.Client.Numero, diagMessage)
+					return
+				}
+
+				nc := ldap.NewControl(ldap.LDAPOID(ldap.ControlTypePaging), cpCriticality, ldap.OCTETSTRING(b.Bytes()))
+
+				if (r.SizeLimit().Int() > 0 && sizeCounter >= r.SizeLimit().Int()) || m.MessageID().Int() == 127 { // m.MessageID().Int() == 127 - error in goldap, deadlock on 128 message
+					res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSizeLimitExceeded)
+					responseMessage := ldap.NewLDAPMessageWithProtocolOpAndControls(res, ldap.Controls{nc})
+					w.WriteMessage(responseMessage)
+					log.Printf(fmt.Sprintf("client [%d]: paged search with filter '%s' exceeded sizeLimit (%d)", m.Client.Numero, r.FilterString(), r.SizeLimit()))
+				} else {
+					res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess)
+					responseMessage := ldap.NewLDAPMessageWithProtocolOpAndControls(res, ldap.Controls{nc})
+					w.WriteMessage(responseMessage)
+					log.Printf(fmt.Sprintf("client [%d]: paged search with filter '%s' successful", m.Client.Numero, r.FilterString()))
+				}
+
+				break
+			}
+		}
 	} else {
-		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess)
-		responseMessage := ldap.NewLDAPMessageWithProtocolOp(res)
-		w.WriteMessage(responseMessage)
-		log.Printf(fmt.Sprintf("client [%d]: search with filter '%s' successful", m.Client.Numero, r.FilterString()))
+		for _, e := range entries {
+			w.Write(e)
+		}
+
+		if r.SizeLimit().Int() > 0 && sizeCounter >= r.SizeLimit().Int() {
+			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSizeLimitExceeded)
+			responseMessage := ldap.NewLDAPMessageWithProtocolOp(res)
+			w.WriteMessage(responseMessage)
+			log.Printf(fmt.Sprintf("client [%d]: search with filter '%s' exceeded sizeLimit (%d)", m.Client.Numero, r.FilterString(), r.SizeLimit()))
+		} else {
+			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess)
+			responseMessage := ldap.NewLDAPMessageWithProtocolOp(res)
+			w.WriteMessage(responseMessage)
+			log.Printf(fmt.Sprintf("client [%d]: search with filter '%s' successful", m.Client.Numero, r.FilterString()))
+		}
 	}
 }
 

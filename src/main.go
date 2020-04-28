@@ -16,6 +16,11 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+const (
+	mainClientID   int = -1
+	signalClientID int = -2
+)
+
 var (
 	restURL         string
 	restFile        string

@@ -132,30 +132,20 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		}
 
 		e := ldapserver.NewSearchResultEntry(fmt.Sprintf("cn=%s,%s", user.CN[0], r.BaseObject()))
-		e.AddAttribute("cn", ldap.AttributeValue(user.CN[0]))
+		e.AddAttribute("cn", newLDAPAttributeValues(user.CN)...)
 		e.AddAttribute("objectClass", "posixAccount", "shadowAccount", "organizationalPerson", "inetOrgPerson", "person")
-		e.AddAttribute("homeDirectory", ldap.AttributeValue(user.HomeDirectory[0]))
-		e.AddAttribute("uid", ldap.AttributeValue(user.UID[0]))
-		e.AddAttribute("uidNumber", ldap.AttributeValue(user.UIDNumber[0]))
-		e.AddAttribute("mail", ldap.AttributeValue(user.Mail[0]))
-		e.AddAttribute("displayName", ldap.AttributeValue(user.DisplayName[0]))
-		e.AddAttribute("givenName", ldap.AttributeValue(user.GivenName[0]))
-		e.AddAttribute("sn", ldap.AttributeValue(user.SN[0]))
-		e.AddAttribute("userPassword", ldap.AttributeValue(user.UserPassword[0]))
-		e.AddAttribute("loginShell", ldap.AttributeValue(user.LoginShell[0]))
-		e.AddAttribute("gidNumber", ldap.AttributeValue(user.GIDNumber[0]))
-
-		attrs := []ldap.AttributeValue{}
-		for _, sshKey := range user.SSHPublicKey {
-			attrs = append(attrs, ldap.AttributeValue(sshKey))
-		}
-		e.AddAttribute("sshPublicKey", attrs...)
-
-		attrs = []ldap.AttributeValue{}
-		for _, hostIP := range user.IPHostNumber {
-			attrs = append(attrs, ldap.AttributeValue(hostIP))
-		}
-		e.AddAttribute("ipHostNumber", attrs...)
+		e.AddAttribute("homeDirectory", newLDAPAttributeValues(user.HomeDirectory)...)
+		e.AddAttribute("uid", newLDAPAttributeValues(user.UID)...)
+		e.AddAttribute("uidNumber", newLDAPAttributeValues(user.UIDNumber)...)
+		e.AddAttribute("mail", newLDAPAttributeValues(user.Mail)...)
+		e.AddAttribute("displayName", newLDAPAttributeValues(user.DisplayName)...)
+		e.AddAttribute("givenName", newLDAPAttributeValues(user.GivenName)...)
+		e.AddAttribute("sn", newLDAPAttributeValues(user.SN)...)
+		e.AddAttribute("userPassword", newLDAPAttributeValues(user.UserPassword)...)
+		e.AddAttribute("loginShell", newLDAPAttributeValues(user.LoginShell)...)
+		e.AddAttribute("gidNumber", newLDAPAttributeValues(user.GIDNumber)...)
+		e.AddAttribute("sshPublicKey", newLDAPAttributeValues(user.SSHPublicKey)...)
+		e.AddAttribute("ipHostNumber", newLDAPAttributeValues(user.IPHostNumber)...)
 
 		w.Write(e)
 	}
@@ -181,21 +171,11 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 		e := ldapserver.NewSearchResultEntry(fmt.Sprintf("cn=%s,%s", group.CN[0], r.BaseObject()))
 		e.AddAttribute("objectClass", "posixGroup")
-		e.AddAttribute("description", ldap.AttributeValue(group.Description[0]))
-		e.AddAttribute("cn", ldap.AttributeValue(group.CN[0]))
-		e.AddAttribute("gidNumber", ldap.AttributeValue(group.GIDNumber[0]))
-
-		attrs := []ldap.AttributeValue{}
-		for _, ou := range group.OU {
-			attrs = append(attrs, ldap.AttributeValue(ou))
-		}
-		e.AddAttribute("ou", attrs...)
-
-		attrs = []ldap.AttributeValue{}
-		for _, membrUID := range group.MemberUID {
-			attrs = append(attrs, ldap.AttributeValue(membrUID))
-		}
-		e.AddAttribute("memberUid", attrs...)
+		e.AddAttribute("description", newLDAPAttributeValues(group.Description)...)
+		e.AddAttribute("cn", newLDAPAttributeValues(group.CN)...)
+		e.AddAttribute("gidNumber", newLDAPAttributeValues(group.GIDNumber)...)
+		e.AddAttribute("ou", newLDAPAttributeValues(group.OU)...)
+		e.AddAttribute("memberUid", newLDAPAttributeValues(group.MemberUID)...)
 
 		w.Write(e)
 	}
@@ -379,4 +359,11 @@ func doCompare(o interface{}, attrName string, attrValue string) bool {
 	}
 
 	return false
+}
+
+func newLDAPAttributeValues(values []string) (out []ldap.AttributeValue) {
+	for _, v := range values {
+		out = append(out, ldap.AttributeValue(v))
+	}
+	return
 }

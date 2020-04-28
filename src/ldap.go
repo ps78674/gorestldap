@@ -286,7 +286,8 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	case "message.FilterPresent":
 		rValue := reflect.ValueOf(o)
 		for i := 0; i < rValue.Type().NumField(); i++ {
-			if strings.ToLower(rValue.Type().Field(i).Tag.Get("json")) == strings.ToLower(reflect.ValueOf(f).String()) && rValue.Field(i).Len() > 0 {
+			if strings.ToLower(reflect.ValueOf(f).String()) == "objectclass" ||
+				(strings.ToLower(rValue.Type().Field(i).Tag.Get("json")) == strings.ToLower(reflect.ValueOf(f).String()) && rValue.Field(i).Len() > 0) {
 				return true, nil
 			}
 		}

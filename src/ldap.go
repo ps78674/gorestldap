@@ -84,16 +84,6 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	log.Printf("client [%d]: bind for user '%s' successful", m.Client.Numero, r.Name())
 }
 
-// handle search for different basedn
-func handleSearchOther(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-	diagMessage := fmt.Sprintf("search allowed only for basedn '%s'", baseDN)
-	res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
-	res.SetDiagnosticMessage(diagMessage)
-	w.Write(res)
-
-	log.Printf("client [%d]: search error: %s", m.Client.Numero, diagMessage)
-}
-
 // handle search for our basedn
 func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	// handle stop signal - see main.go
@@ -208,6 +198,24 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		w.WriteMessage(responseMessage)
 		log.Printf(fmt.Sprintf("client [%d]: search with filter '%s' successful", m.Client.Numero, r.FilterString()))
 	}
+}
+
+// handle search for different basedn
+func handleSearchOther(w ldapserver.ResponseWriter, m *ldapserver.Message) {
+	r := m.GetSearchRequest()
+
+	// remove spaces from baseDN
+	if strings.ReplaceAll(string(r.BaseObject()), " ", "") == baseDN {
+		handleSearch(w, m)
+		return
+	}
+
+	diagMessage := fmt.Sprintf("search allowed only for basedn '%s', got '%s'", baseDN, r.BaseObject())
+	res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
+	res.SetDiagnosticMessage(diagMessage)
+	w.Write(res)
+
+	log.Printf("client [%d]: search error: %s", m.Client.Numero, diagMessage)
 }
 
 // apply search filter

@@ -112,9 +112,16 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		restData.update(m.Client.Numero, "", "")
 	}
 
+	sizeCounter := 0
+	var entries []ldap.SearchResultEntry
+
 	for _, user := range restData.Users {
 		if stop {
 			return
+		}
+
+		if r.SizeLimit().Int() > 0 && sizeCounter >= r.SizeLimit().Int() {
+			break
 		}
 
 		ok, err := applySearchFilter(user, r.Filter())
@@ -147,12 +154,17 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		e.AddAttribute("sshPublicKey", newLDAPAttributeValues(user.SSHPublicKey)...)
 		e.AddAttribute("ipHostNumber", newLDAPAttributeValues(user.IPHostNumber)...)
 
-		w.Write(e)
+		entries = append(entries, e)
+		sizeCounter++
 	}
 
 	for _, group := range restData.Groups {
 		if stop {
 			return
+		}
+
+		if r.SizeLimit().Int() > 0 && sizeCounter >= r.SizeLimit().Int() {
+			break
 		}
 
 		ok, err := applySearchFilter(group, r.Filter())
@@ -177,13 +189,25 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		e.AddAttribute("ou", newLDAPAttributeValues(group.OU)...)
 		e.AddAttribute("memberUid", newLDAPAttributeValues(group.MemberUID)...)
 
+		entries = append(entries, e)
+		sizeCounter++
+	}
+
+	for _, e := range entries {
 		w.Write(e)
 	}
 
-	res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess)
-	w.Write(res)
-
-	log.Printf("client [%d]: search with filter '%s' successful", m.Client.Numero, r.FilterString())
+	if r.SizeLimit().Int() > 0 && sizeCounter >= r.SizeLimit().Int() {
+		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSizeLimitExceeded)
+		responseMessage := ldap.NewLDAPMessageWithProtocolOp(res)
+		w.WriteMessage(responseMessage)
+		log.Printf(fmt.Sprintf("client [%d]: search with filter '%s' exceeded sizeLimit (%d)", m.Client.Numero, r.FilterString(), r.SizeLimit()))
+	} else {
+		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess)
+		responseMessage := ldap.NewLDAPMessageWithProtocolOp(res)
+		w.WriteMessage(responseMessage)
+		log.Printf(fmt.Sprintf("client [%d]: search with filter '%s' successful", m.Client.Numero, r.FilterString()))
+	}
 }
 
 // apply search filter

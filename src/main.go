@@ -16,6 +16,11 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+const (
+	mainClientID   int = -1
+	signalClientID int = -2
+)
+
 var (
 	restURL         string
 	restFile        string
@@ -180,7 +185,7 @@ func main() {
 	if memStoreTimeout > 0 {
 		go func() {
 			for {
-				restData.update(-1, "", "")
+				restData.update(mainClientID, "", "")
 				time.Sleep(memStoreTimeout * time.Second)
 			}
 		}()
@@ -190,7 +195,7 @@ func main() {
 			for {
 				signal.Notify(chUsr, syscall.SIGUSR1)
 				<-chUsr
-				go restData.update(-3, "", "")
+				go restData.update(signalClientID, "", "")
 			}
 		}()
 	}

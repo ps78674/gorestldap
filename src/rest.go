@@ -81,10 +81,18 @@ func (data *restAttrs) update(cNum int, cn string, oType string) {
 		return
 	}
 
-	if oType == "" || oType == "user" {
-		if len(data.Users) == 0 {
-			data.Users = getRESTUserData(cNum, cn)
-		} else {
+	if cNum == mainClientID || cNum == signalClientID {
+		data.Users = getRESTUserData(cNum, "")
+		data.Groups = getRESTGroupData(cNum, "")
+	}
+
+	if cNum == httpClientID {
+		if oType == "" || oType == "user" {
+			if cn == "" {
+				data.Users = getRESTUserData(cNum, "")
+				return
+			}
+
 			for _, newUser := range getRESTUserData(cNum, cn) {
 				found := false
 
@@ -101,11 +109,12 @@ func (data *restAttrs) update(cNum int, cn string, oType string) {
 				}
 			}
 		}
-	}
-	if oType == "" || oType == "group" {
-		if len(data.Groups) == 0 {
-			data.Groups = getRESTGroupData(cNum, cn)
-		} else {
+		if oType == "" || oType == "group" {
+			if cn == "" {
+				data.Groups = getRESTGroupData(cNum, "")
+				return
+			}
+
 			for _, newGroup := range getRESTGroupData(cNum, cn) {
 				found := false
 

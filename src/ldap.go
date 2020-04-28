@@ -84,16 +84,6 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	log.Printf("client [%d]: bind for user '%s' successful", m.Client.Numero, r.Name())
 }
 
-// handle search for different basedn
-func handleSearchOther(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-	diagMessage := fmt.Sprintf("search allowed only for basedn '%s'", baseDN)
-	res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
-	res.SetDiagnosticMessage(diagMessage)
-	w.Write(res)
-
-	log.Printf("client [%d]: search error: %s", m.Client.Numero, diagMessage)
-}
-
 // handle search for our basedn
 func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	// handle stop signal - see main.go
@@ -112,9 +102,16 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		restData.update(m.Client.Numero, "", "")
 	}
 
+	sizeCounter := 0
+	var entries []ldap.SearchResultEntry
+
 	for _, user := range restData.Users {
 		if stop {
 			return
+		}
+
+		if r.SizeLimit().Int() > 0 && sizeCounter >= r.SizeLimit().Int() {
+			break
 		}
 
 		ok, err := applySearchFilter(user, r.Filter())
@@ -132,37 +129,32 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		}
 
 		e := ldapserver.NewSearchResultEntry(fmt.Sprintf("cn=%s,%s", user.CN[0], r.BaseObject()))
-		e.AddAttribute("cn", ldap.AttributeValue(user.CN[0]))
+		e.AddAttribute("cn", newLDAPAttributeValues(user.CN)...)
 		e.AddAttribute("objectClass", "posixAccount", "shadowAccount", "organizationalPerson", "inetOrgPerson", "person")
-		e.AddAttribute("homeDirectory", ldap.AttributeValue(user.HomeDirectory[0]))
-		e.AddAttribute("uid", ldap.AttributeValue(user.UID[0]))
-		e.AddAttribute("uidNumber", ldap.AttributeValue(user.UIDNumber[0]))
-		e.AddAttribute("mail", ldap.AttributeValue(user.Mail[0]))
-		e.AddAttribute("displayName", ldap.AttributeValue(user.DisplayName[0]))
-		e.AddAttribute("givenName", ldap.AttributeValue(user.GivenName[0]))
-		e.AddAttribute("sn", ldap.AttributeValue(user.SN[0]))
-		e.AddAttribute("userPassword", ldap.AttributeValue(user.UserPassword[0]))
-		e.AddAttribute("loginShell", ldap.AttributeValue(user.LoginShell[0]))
-		e.AddAttribute("gidNumber", ldap.AttributeValue(user.GIDNumber[0]))
+		e.AddAttribute("homeDirectory", newLDAPAttributeValues(user.HomeDirectory)...)
+		e.AddAttribute("uid", newLDAPAttributeValues(user.UID)...)
+		e.AddAttribute("uidNumber", newLDAPAttributeValues(user.UIDNumber)...)
+		e.AddAttribute("mail", newLDAPAttributeValues(user.Mail)...)
+		e.AddAttribute("displayName", newLDAPAttributeValues(user.DisplayName)...)
+		e.AddAttribute("givenName", newLDAPAttributeValues(user.GivenName)...)
+		e.AddAttribute("sn", newLDAPAttributeValues(user.SN)...)
+		e.AddAttribute("userPassword", newLDAPAttributeValues(user.UserPassword)...)
+		e.AddAttribute("loginShell", newLDAPAttributeValues(user.LoginShell)...)
+		e.AddAttribute("gidNumber", newLDAPAttributeValues(user.GIDNumber)...)
+		e.AddAttribute("sshPublicKey", newLDAPAttributeValues(user.SSHPublicKey)...)
+		e.AddAttribute("ipHostNumber", newLDAPAttributeValues(user.IPHostNumber)...)
 
-		attrs := []ldap.AttributeValue{}
-		for _, sshKey := range user.SSHPublicKey {
-			attrs = append(attrs, ldap.AttributeValue(sshKey))
-		}
-		e.AddAttribute("sshPublicKey", attrs...)
-
-		attrs = []ldap.AttributeValue{}
-		for _, hostIP := range user.IPHostNumber {
-			attrs = append(attrs, ldap.AttributeValue(hostIP))
-		}
-		e.AddAttribute("ipHostNumber", attrs...)
-
-		w.Write(e)
+		entries = append(entries, e)
+		sizeCounter++
 	}
 
 	for _, group := range restData.Groups {
 		if stop {
 			return
+		}
+
+		if r.SizeLimit().Int() > 0 && sizeCounter >= r.SizeLimit().Int() {
+			break
 		}
 
 		ok, err := applySearchFilter(group, r.Filter())
@@ -181,29 +173,113 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 		e := ldapserver.NewSearchResultEntry(fmt.Sprintf("cn=%s,%s", group.CN[0], r.BaseObject()))
 		e.AddAttribute("objectClass", "posixGroup")
-		e.AddAttribute("description", ldap.AttributeValue(group.Description[0]))
-		e.AddAttribute("cn", ldap.AttributeValue(group.CN[0]))
-		e.AddAttribute("gidNumber", ldap.AttributeValue(group.GIDNumber[0]))
+		e.AddAttribute("description", newLDAPAttributeValues(group.Description)...)
+		e.AddAttribute("cn", newLDAPAttributeValues(group.CN)...)
+		e.AddAttribute("gidNumber", newLDAPAttributeValues(group.GIDNumber)...)
+		e.AddAttribute("ou", newLDAPAttributeValues(group.OU)...)
+		e.AddAttribute("memberUid", newLDAPAttributeValues(group.MemberUID)...)
 
-		attrs := []ldap.AttributeValue{}
-		for _, ou := range group.OU {
-			attrs = append(attrs, ldap.AttributeValue(ou))
-		}
-		e.AddAttribute("ou", attrs...)
-
-		attrs = []ldap.AttributeValue{}
-		for _, membrUID := range group.MemberUID {
-			attrs = append(attrs, ldap.AttributeValue(membrUID))
-		}
-		e.AddAttribute("memberUid", attrs...)
-
-		w.Write(e)
+		entries = append(entries, e)
+		sizeCounter++
 	}
 
-	res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess)
+	// get 1.2.840.113556.1.4.319 from requested controls
+	var cp ldap.ControlPaging
+	var cpCriticality ldap.BOOLEAN
+
+	if m.Controls() != nil {
+		for _, c := range *m.Controls() {
+			if c.ControlType().String() == ldap.ControlTypePaging {
+				var err error
+				cp, err = ldap.ReadControlPaging(ldap.NewBytes(0, c.ControlValue().Bytes()))
+				if err != nil {
+					log.Printf("client [%d]: error reading control paging: %s", m.Client.Numero, err)
+				}
+				cpCriticality = c.Criticality()
+				break
+			}
+		}
+	}
+
+	// if paging requested -> return results in pages
+	if cp.PageSize().Int() > 0 {
+		c := 0
+		for {
+			w.Write(entries[m.Client.EntriesSent]) // m.Client.EntriesSent - how many entries already been sent
+			m.Client.EntriesSent++
+			c++
+
+			if c == cp.PageSize().Int() || m.Client.EntriesSent == len(entries) {
+				var cpCookie ldap.OCTETSTRING
+				if m.Client.EntriesSent != len(entries) {
+					cpCookie = ldap.OCTETSTRING(programName) // use programName instead of random cookie
+				}
+
+				ncp := ldap.NewControlPaging(ldap.INTEGER(len(entries)), cpCookie)
+
+				b, err := ncp.WriteControlPaging()
+				if err != nil {
+					diagMessage := fmt.Sprintf("error encoding control paging: %s", err)
+					res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultOther)
+					res.SetDiagnosticMessage(diagMessage)
+					w.Write(res)
+
+					log.Printf("client [%d]: search error: %s", m.Client.Numero, diagMessage)
+					return
+				}
+
+				nc := ldap.NewControl(ldap.LDAPOID(ldap.ControlTypePaging), cpCriticality, ldap.OCTETSTRING(b.Bytes()))
+
+				if (r.SizeLimit().Int() > 0 && sizeCounter >= r.SizeLimit().Int()) || m.MessageID().Int() == 127 { // m.MessageID().Int() == 127 - error in goldap, deadlock on 128 message
+					res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSizeLimitExceeded)
+					responseMessage := ldap.NewLDAPMessageWithProtocolOpAndControls(res, ldap.Controls{nc})
+					w.WriteMessage(responseMessage)
+					log.Printf(fmt.Sprintf("client [%d]: paged search with filter '%s' exceeded sizeLimit (%d)", m.Client.Numero, r.FilterString(), r.SizeLimit()))
+				} else {
+					res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess)
+					responseMessage := ldap.NewLDAPMessageWithProtocolOpAndControls(res, ldap.Controls{nc})
+					w.WriteMessage(responseMessage)
+					log.Printf(fmt.Sprintf("client [%d]: paged search with filter '%s' successful", m.Client.Numero, r.FilterString()))
+				}
+
+				break
+			}
+		}
+	} else {
+		for _, e := range entries {
+			w.Write(e)
+		}
+
+		if r.SizeLimit().Int() > 0 && sizeCounter >= r.SizeLimit().Int() {
+			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSizeLimitExceeded)
+			responseMessage := ldap.NewLDAPMessageWithProtocolOp(res)
+			w.WriteMessage(responseMessage)
+			log.Printf(fmt.Sprintf("client [%d]: search with filter '%s' exceeded sizeLimit (%d)", m.Client.Numero, r.FilterString(), r.SizeLimit()))
+		} else {
+			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess)
+			responseMessage := ldap.NewLDAPMessageWithProtocolOp(res)
+			w.WriteMessage(responseMessage)
+			log.Printf(fmt.Sprintf("client [%d]: search with filter '%s' successful", m.Client.Numero, r.FilterString()))
+		}
+	}
+}
+
+// handle search for different basedn
+func handleSearchOther(w ldapserver.ResponseWriter, m *ldapserver.Message) {
+	r := m.GetSearchRequest()
+
+	// remove spaces from baseDN
+	if strings.ReplaceAll(string(r.BaseObject()), " ", "") == baseDN {
+		handleSearch(w, m)
+		return
+	}
+
+	diagMessage := fmt.Sprintf("search allowed only for basedn '%s', got '%s'", baseDN, r.BaseObject())
+	res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
+	res.SetDiagnosticMessage(diagMessage)
 	w.Write(res)
 
-	log.Printf("client [%d]: search with filter '%s' successful", m.Client.Numero, r.FilterString())
+	log.Printf("client [%d]: search error: %s", m.Client.Numero, diagMessage)
 }
 
 // apply search filter
@@ -274,7 +350,8 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	case "message.FilterPresent":
 		rValue := reflect.ValueOf(o)
 		for i := 0; i < rValue.Type().NumField(); i++ {
-			if strings.ToLower(rValue.Type().Field(i).Tag.Get("json")) == strings.ToLower(reflect.ValueOf(f).String()) && rValue.Field(i).Len() > 0 {
+			if strings.ToLower(reflect.ValueOf(f).String()) == "objectclass" ||
+				(strings.ToLower(rValue.Type().Field(i).Tag.Get("json")) == strings.ToLower(reflect.ValueOf(f).String()) && rValue.Field(i).Len() > 0) {
 				return true, nil
 			}
 		}
@@ -379,4 +456,11 @@ func doCompare(o interface{}, attrName string, attrValue string) bool {
 	}
 
 	return false
+}
+
+func newLDAPAttributeValues(values []string) (out []ldap.AttributeValue) {
+	for _, v := range values {
+		out = append(out, ldap.AttributeValue(v))
+	}
+	return
 }

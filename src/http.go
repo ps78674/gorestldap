@@ -13,6 +13,8 @@ type callbackData struct {
 	Type string
 }
 
+const httpClientID int = -3
+
 func listenAndServeHTTP(s *fasthttp.Server, addr string, ch chan error) error {
 	httpHandler := func(ctx *fasthttp.RequestCtx) {
 		switch path := string(ctx.Path()); path {
@@ -55,5 +57,5 @@ func handleCallback(ctx *fasthttp.RequestCtx) {
 		ctx.Error(strMsg, fasthttp.StatusBadRequest)
 	}
 
-	go restData.update(-2, postData.CN, postData.Type)
+	go restData.update(httpClientID, postData.CN, postData.Type)
 }

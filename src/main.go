@@ -76,7 +76,7 @@ func init() {
 	}
 
 	restURL = strings.ToLower(cmdOpts["--url"].(string))
-	baseDN = strings.ToLower(cmdOpts["--basedn"].(string))
+	baseDN = trimSpacesAfterComma(strings.ToLower(cmdOpts["--basedn"].(string)))
 	bindAddress = cmdOpts["--addr"].(string)
 	bindPort = cmdOpts["--port"].(string)
 	httpPort = cmdOpts["--httpport"].(string)
@@ -130,9 +130,9 @@ func main() {
 
 	//Create routes bindings
 	routes := ldapserver.NewRouteMux()
+	routes.Search(handleSearchDSE).BaseDn("").Scope(ldapserver.SearchRequestScopeBaseObject).Filter("(objectclass=*)")
 	routes.Bind(handleBind)
-	routes.Search(handleSearch).BaseDn(baseDN)
-	routes.Search(handleSearchOther)
+	routes.Search(handleSearch)
 	routes.Compare(handleCompare)
 
 	//Attach routes to server

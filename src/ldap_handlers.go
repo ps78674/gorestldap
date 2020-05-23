@@ -12,6 +12,9 @@ import (
 // handle bind
 func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	r := m.GetBindRequest()
+	log.Printf("client [%d]: performing bind for user '%s'", m.Client.Numero, r.Name())
+
+	// only simple authentiacion supported
 	if r.AuthenticationChoice() != "simple" {
 		diagMessage := fmt.Sprintf("authentication method '%s' is not supported", r.AuthenticationChoice())
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultUnwillingToPerform)
@@ -22,8 +25,10 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
-	if !strings.HasSuffix(string(r.Name()), baseDN) {
-		diagMessage := fmt.Sprintf("binddn must end with basedn '%s'", baseDN)
+	// bind entry must be 'cn=<COMMON_NAME>' or 'cn=<COMMON_NAME>,dc=base,dc=dn'
+	bindDNParts := strings.SplitN(string(r.Name()), ",", 2)
+	if len(bindDNParts) == 2 && trimSpacesAfterComma(bindDNParts[1]) != baseDN {
+		diagMessage := fmt.Sprintf("wrong basedn for user '%s'", r.Name())
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
@@ -32,23 +37,36 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
-	bindDNParts := strings.Split(strings.TrimSuffix(string(r.Name()), fmt.Sprintf(",%s", baseDN)), ",")
-	if len(bindDNParts) != 1 || !(strings.HasPrefix(bindDNParts[0], "cn=") || strings.HasPrefix(bindDNParts[0], "uid=")) {
-		diagMessage := fmt.Sprintf("wrong binddn '%s'", r.Name())
-		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
-		res.SetDiagnosticMessage(diagMessage)
-		w.Write(res)
-
-		log.Printf("client [%d]: bind error: %s", m.Client.Numero, diagMessage)
-		return
+	if len(bindDNParts) == 2 {
+		bindDNParts = strings.SplitN(string(bindDNParts[0]), "=", 2)
+	} else {
+		bindDNParts = strings.SplitN(string(r.Name()), "=", 2)
 	}
 
-	userName := strings.TrimPrefix(strings.TrimPrefix(bindDNParts[0], "cn="), "uid=")
+	// bind entry must start with 'cn=' or 'uid='
+	var userName string
+	if len(bindDNParts) == 1 {
+		userName = bindDNParts[0]
+	} else {
+		switch bindDNParts[0] {
+		case "cn", "uid":
+			userName = bindDNParts[1]
+		default:
+			diagMessage := fmt.Sprintf("wrong binddn '%s'", r.Name())
+			res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
+			res.SetDiagnosticMessage(diagMessage)
+			w.Write(res)
+
+			log.Printf("client [%d]: bind error: %s", m.Client.Numero, diagMessage)
+			return
+		}
+	}
 
 	if memStoreTimeout <= 0 {
 		restData.update(m.Client.Numero, userName, "user")
 	}
 
+	// FIXME: check all elements of u.CN
 	userData := restUserAttrs{}
 	for _, u := range restData.Users {
 		if u.CN[0] == userName {
@@ -57,6 +75,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		}
 	}
 
+	// user not found
 	if len(userData.CN) == 0 {
 		diagMessage := fmt.Sprintf("user '%s' not found", userName)
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
@@ -67,6 +86,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
+	// FIXME: check all elements of userData.UserPassword
 	if !validatePassword(string(r.AuthenticationSimple()), userData.UserPassword[0]) {
 		diagMessage := fmt.Sprintf("wrong password for user '%s'", r.Name())
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)

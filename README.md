@@ -35,8 +35,8 @@ Example: `curl localhost:8080/callback -X POST -H "Content-Type: application/jso
 ### **File JSON structure**
 ```
 [
-    "users":[...],
-    "groups":[...],
+    {"users":[...]},
+    {"groups":[...]}
 ]
 ```
 

@@ -76,7 +76,7 @@ func init() {
 	}
 
 	restURL = strings.ToLower(cmdOpts["--url"].(string))
-	baseDN = strings.ToLower(cmdOpts["--basedn"].(string))
+	baseDN = trimSpacesAfterComma(strings.ToLower(cmdOpts["--basedn"].(string)))
 	bindAddress = cmdOpts["--addr"].(string)
 	bindPort = cmdOpts["--port"].(string)
 	httpPort = cmdOpts["--httpport"].(string)

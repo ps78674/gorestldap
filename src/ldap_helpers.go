@@ -3,12 +3,13 @@ package main
 import (
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 
 	ldap "github.com/ps78674/goldap/message"
 )
 
-// apply search filter
+// apply search filter for each object
 func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	switch fmt.Sprintf("%T", f) {
 	case "message.FilterEqualityMatch":
@@ -88,6 +89,7 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	return false, nil
 }
 
+// actual compare
 func doCompare(o interface{}, attrName string, attrValue string) bool {
 	rValue := reflect.ValueOf(o)
 	for i := 0; i < rValue.Type().NumField(); i++ {
@@ -103,9 +105,16 @@ func doCompare(o interface{}, attrName string, attrValue string) bool {
 	return false
 }
 
+// create slice of ldap attributes
 func newLDAPAttributeValues(values []string) (out []ldap.AttributeValue) {
 	for _, v := range values {
 		out = append(out, ldap.AttributeValue(v))
 	}
 	return
+}
+
+// trim spaces for entries (dc=test, dc.example,  dc=org -> dc=test,dc.example,dc=org)
+func trimSpacesAfterComma(s string) string {
+	re := regexp.MustCompile("(,[\\s]+)")
+	return re.ReplaceAllString(s, ",")
 }

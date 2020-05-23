@@ -268,7 +268,7 @@ func handleSearchOther(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	r := m.GetSearchRequest()
 
 	// remove spaces from baseDN
-	if strings.ReplaceAll(string(r.BaseObject()), " ", "") == baseDN {
+	if trimSpacesAfterComma(string(r.BaseObject())) == baseDN {
 		handleSearch(w, m)
 		return
 	}

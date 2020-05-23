@@ -301,7 +301,9 @@ func handleSearchOther(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	log.Printf("client [%d]: search error: %s", m.Client.Numero, diagMessage)
 }
 
+// handle compare
 func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
+	// handle stop signal - see main.go
 	stop := false
 	go func() {
 		<-m.Done
@@ -312,8 +314,9 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	r := m.GetCompareRequest()
 	log.Printf("client [%d]: performing compare '%s' for dn '%s'", m.Client.Numero, r.Ava(), r.Entry())
 
+	// entry must end with basedn (-b/--basedn)
 	if !strings.HasSuffix(string(r.Entry()), baseDN) {
-		diagMessage := fmt.Sprintf("entry must end with basedn '%s'", baseDN)
+		diagMessage := fmt.Sprintf("wrong basedn for entry '%s'", r.Entry())
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultUnwillingToPerform)
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
@@ -326,8 +329,9 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	compareAttrName := compareEntry[0]
 	compareAttrValue := compareEntry[1]
 
+	// entry must look like 'cn=<COMMON_NAME>,dc=base,dc=dn
 	if compareAttrName != "cn" {
-		diagMessage := fmt.Sprintf("entry must look like 'cn=<COMMON_NAME>,%s'", baseDN)
+		diagMessage := fmt.Sprintf("compare supported for cn attribute only (got %s)", compareAttrName)
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultUnwillingToPerform)
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
@@ -345,6 +349,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			return
 		}
 
+		// FIXME: check all elements of user.CN
 		if user.CN[0] != compareAttrValue {
 			continue
 		}
@@ -363,6 +368,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			return
 		}
 
+		// FIXME: check all elements of group.CN
 		if group.CN[0] != compareAttrValue {
 			continue
 		}

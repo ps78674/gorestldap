@@ -13,20 +13,20 @@ import (
 func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	switch fmt.Sprintf("%T", f) {
 	case "message.FilterEqualityMatch":
-		attrName := strings.ToLower(reflect.ValueOf(f).Field(0).String())
-		attrValue := strings.ToLower(reflect.ValueOf(f).Field(1).String())
+		attrName := strings.ToLower(reflect.ValueOf(f).Field(0).String()) // CN|cn -> compare in lowercase
+		attrValue := reflect.ValueOf(f).Field(1).String()
 
 		rValue := reflect.ValueOf(o)
 		for i := 0; i < rValue.Type().NumField(); i++ {
 			if attrName == "objectclass" && fmt.Sprintf("%T", o) == "main.restUserAttrs" {
 				switch attrValue {
-				case "posixaccount", "shadowaccount", "organizationalPerson", "inetOrgPerson", "person":
+				case "posixAccount", "shadowAccount", "organizationalPerson", "inetOrgPerson", "person":
 					return true, nil
 				}
 			}
 			if attrName == "objectclass" && fmt.Sprintf("%T", o) == "main.restGroupAttrs" {
 				switch attrValue {
-				case "posixgroup":
+				case "posixGroup":
 					return true, nil
 				}
 			}

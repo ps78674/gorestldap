@@ -35,7 +35,7 @@ var (
 	logFile         string
 	authToken       string
 	memStoreTimeout time.Duration
-	restData        restAttrs
+	restData        restObjects
 )
 
 var (
@@ -135,6 +135,15 @@ func main() {
 	routes.Search(handleSearch)
 	routes.Compare(handleCompare)
 
+	// modify supported only with url
+	for _, a := range os.Args {
+		switch a {
+		case "-u", "--url":
+			routes.Modify(handleModify)
+			break
+		}
+	}
+
 	//Attach routes to server
 	ldapServer.Handle(routes)
 
@@ -163,6 +172,7 @@ func main() {
 		noCallback = true
 	}
 
+	// http callback server
 	var httpServer fasthttp.Server
 	if !noCallback {
 		chErr := make(chan error)

@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 )
 
-// validate password (string) with ldap ssha hash
+// validate password over SSHA hash
 func validatePassword(password string, hash string) bool {
 	if len(hash) < 7 || string(hash[0:6]) != "{SSHA}" {
 		return false
@@ -26,7 +26,7 @@ func validatePassword(password string, hash string) bool {
 	return false
 }
 
-// standard algorythm for creating ssha-hashed passwords for ldap
+// create SSHA hashed password
 func createHash(password string, salt []byte) []byte {
 	pass := []byte(password)
 	str := append(pass[:], salt[:]...)

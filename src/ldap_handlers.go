@@ -30,11 +30,11 @@ func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 // handle bind
 func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	r := m.GetBindRequest()
-	log.Printf("client [%d]: performing bind for user '%s'", m.Client.Numero, r.Name())
+	log.Printf("client [%d]: performing bind with dn %s", m.Client.Numero, r.Name())
 
 	// only simple authentiacion supported
 	if r.AuthenticationChoice() != "simple" {
-		diagMessage := fmt.Sprintf("authentication method '%s' is not supported", r.AuthenticationChoice())
+		diagMessage := fmt.Sprintf("authentication method %s is not supported", r.AuthenticationChoice())
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultUnwillingToPerform)
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
@@ -43,11 +43,10 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
-	// bind entry must be 'cn=<COMMON_NAME>' or 'cn=<COMMON_NAME>,dc=base,dc=dn'
-	bindDNParts := strings.SplitN(string(r.Name()), ",", 2)
-	if len(bindDNParts) == 2 && trimSpacesAfterComma(bindDNParts[1]) != baseDN {
-		diagMessage := fmt.Sprintf("wrong basedn for user '%s'", r.Name())
-		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
+	// entry must end with basedn (-b/--basedn)
+	if !strings.HasSuffix(trimSpacesAfterComma(string(r.Name())), baseDN) {
+		diagMessage := fmt.Sprintf("wrong dn %s: must end with basedn %s", r.Name(), baseDN)
+		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultUnwillingToPerform)
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
@@ -55,39 +54,31 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
-	if len(bindDNParts) == 2 {
-		bindDNParts = strings.SplitN(string(bindDNParts[0]), "=", 2)
-	} else {
-		bindDNParts = strings.SplitN(string(r.Name()), "=", 2)
-	}
+	bindEntry := strings.SplitN(string(strings.TrimSuffix(trimSpacesAfterComma(string(r.Name())), fmt.Sprintf(",%s", baseDN))), "=", 2)
+	bindEntryAttr := bindEntry[0]
+	bindEntryName := bindEntry[1]
 
-	// bind entry must start with 'cn=' or 'uid='
-	var userName string
-	if len(bindDNParts) == 1 {
-		userName = bindDNParts[0]
-	} else {
-		switch bindDNParts[0] {
-		case "cn", "uid":
-			userName = bindDNParts[1]
-		default:
-			diagMessage := fmt.Sprintf("wrong binddn '%s'", r.Name())
-			res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
-			res.SetDiagnosticMessage(diagMessage)
-			w.Write(res)
+	// entry must look like cn=<COMMON_NAME>,dc=base,dc=dn or uid=<COMMON_NAME>,dc=base,dc=dn
+	switch bindEntryAttr {
+	case "cn", "uid":
+	default:
+		diagMessage := fmt.Sprintf("wrong dn %s: must look like {cn, uid}=<COMMON_NAME>,%s", r.Name(), baseDN)
+		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultUnwillingToPerform)
+		res.SetDiagnosticMessage(diagMessage)
+		w.Write(res)
 
-			log.Printf("client [%d]: bind error: %s", m.Client.Numero, diagMessage)
-			return
-		}
+		log.Printf("client [%d]: bind error: %s", m.Client.Numero, diagMessage)
+		return
 	}
 
 	if memStoreTimeout <= 0 {
-		restData.update(m.Client.Numero, userName, "user")
+		restData.update(m.Client.Numero, bindEntryName, "user")
 	}
 
 	// FIXME: check all elements of u.CN
-	userData := restUserAttrs{}
+	userData := restUser{}
 	for _, u := range restData.Users {
-		if u.CN[0] == userName {
+		if u.CN[0] == bindEntryName {
 			userData = u
 			break
 		}
@@ -95,7 +86,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 	// user not found
 	if len(userData.CN) == 0 {
-		diagMessage := fmt.Sprintf("user '%s' not found", userName)
+		diagMessage := fmt.Sprintf("user %s not found", r.Name())
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
@@ -105,8 +96,8 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}
 
 	// FIXME: check all elements of userData.UserPassword
-	if !validatePassword(string(r.AuthenticationSimple()), userData.UserPassword[0]) {
-		diagMessage := fmt.Sprintf("wrong password for user '%s'", r.Name())
+	if !validatePassword(r.AuthenticationSimple().String(), userData.UserPassword[0]) {
+		diagMessage := fmt.Sprintf("wrong password for user %s", r.Name())
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
@@ -118,7 +109,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	res := ldapserver.NewBindResponse(ldapserver.LDAPResultSuccess)
 	w.Write(res)
 
-	log.Printf("client [%d]: bind for user '%s' successful", m.Client.Numero, r.Name())
+	log.Printf("client [%d]: bind with dn %s successful", m.Client.Numero, r.Name())
 }
 
 // handle search
@@ -132,11 +123,11 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}()
 
 	r := m.GetSearchRequest()
-	log.Printf("client [%d]: performing search with filter '%s', base object '%s'", m.Client.Numero, r.FilterString(), r.BaseObject())
+	log.Printf("client [%d]: performing search with filter %s, base object %s", m.Client.Numero, r.FilterString(), r.BaseObject())
 
 	// base object must end with basedn (-b/--basedn)
 	if !strings.HasSuffix(trimSpacesAfterComma(string(r.BaseObject())), baseDN) {
-		diagMessage := fmt.Sprintf("wrong base object '%s': base object must end with basedn '%s'", r.BaseObject(), baseDN)
+		diagMessage := fmt.Sprintf("wrong base object %s: base object must end with basedn %s", r.BaseObject(), baseDN)
 		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
@@ -145,10 +136,10 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
-	// base object must be 'dc=base,dc=dn' or 'cn=<COMMON_NAME>,dc=base,dc=dn'
+	// base object must be dc=base,dc=dn or cn=<COMMON_NAME>,dc=base,dc=dn
 	baseObject := strings.TrimSuffix(strings.TrimSuffix(trimSpacesAfterComma(string(r.BaseObject())), baseDN), ",")
 	if len(baseObject) > 0 && !strings.HasPrefix(baseObject, "cn=") {
-		diagMessage := fmt.Sprintf("wrong base object '%s': wrong dn", r.BaseObject())
+		diagMessage := fmt.Sprintf("wrong base object %s: wrong dn", r.BaseObject())
 		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
@@ -290,7 +281,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	// FIXME: if nothing found -> ldapserver.LDAPResultNoSuchObject ??
 	if len(entries) == 0 {
 		w.Write(ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess))
-		log.Printf("client [%d]: search with filter '%s', base object '%s' successful", m.Client.Numero, r.FilterString(), r.BaseObject())
+		log.Printf("client [%d]: search with filter %s, base object %s successful", m.Client.Numero, r.FilterString(), r.BaseObject())
 
 		return
 	}
@@ -305,7 +296,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 				var err error
 				cp, err = ldap.ReadControlPaging(ldap.NewBytes(0, c.ControlValue().Bytes()))
 				if err != nil {
-					log.Printf("client [%d]: error reading control paging: %s", m.Client.Numero, err)
+					log.Printf("client [%d]: error reading pagedResultsControl: %s", m.Client.Numero, err)
 				}
 				cpCriticality = c.Criticality()
 				break
@@ -315,53 +306,45 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 	// if paging requested -> return results in pages
 	if cp.PageSize().Int() > 0 {
-		c := 0
-		for {
+		var cpCookie ldap.OCTETSTRING
+		for c := 0; c != cp.PageSize().Int() && m.Client.EntriesSent < len(entries); {
 			w.Write(entries[m.Client.EntriesSent]) // m.Client.EntriesSent - how many entries already been sent
 			m.Client.EntriesSent++
 			c++
 
-			if c == cp.PageSize().Int() || m.Client.EntriesSent == len(entries) {
-				var cpCookie ldap.OCTETSTRING
-				if m.Client.EntriesSent != len(entries) {
-					cpCookie = ldap.OCTETSTRING(programName) // use programName instead of random cookie
-				}
+			cpCookie = ldap.OCTETSTRING(programName) // use programName instead of random cookie
+		}
 
-				ncp := ldap.NewControlPaging(ldap.INTEGER(len(entries)), cpCookie)
+		ncp := ldap.NewControlPaging(ldap.INTEGER(len(entries)), cpCookie)
+		b, err := ncp.WriteControlPaging()
+		if err != nil {
+			diagMessage := fmt.Sprintf("error encoding pagedResultsControl: %s", err)
+			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultOther)
+			res.SetDiagnosticMessage(diagMessage)
+			w.Write(res)
 
-				b, err := ncp.WriteControlPaging()
-				if err != nil {
-					diagMessage := fmt.Sprintf("error encoding control paging: %s", err)
-					res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultOther)
-					res.SetDiagnosticMessage(diagMessage)
-					w.Write(res)
+			log.Printf("client [%d]: search error: %s", m.Client.Numero, diagMessage)
+			return
+		}
 
-					log.Printf("client [%d]: search error: %s", m.Client.Numero, diagMessage)
-					return
-				}
+		nc := ldap.NewControl(ldap.LDAPOID(ldap.ControlTypePaging), cpCriticality, ldap.OCTETSTRING(b.Bytes()))
 
-				nc := ldap.NewControl(ldap.LDAPOID(ldap.ControlTypePaging), cpCriticality, ldap.OCTETSTRING(b.Bytes()))
-
-				// FIXME: deadlock on 128 message
-				if m.MessageID().Int() == 127 { // m.MessageID().Int() == 127 - something wrong with conn.Read(), deadlock on 128 message
-					res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSizeLimitExceeded)
-					responseMessage := ldap.NewLDAPMessageWithProtocolOpAndControls(res, ldap.Controls{nc})
-					w.WriteMessage(responseMessage)
-					log.Printf(fmt.Sprintf("client [%d]: search with filter '%s' exceeded sizeLimit (127)", m.Client.Numero, r.FilterString()))
-				} else if sizeLimitReached {
-					res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSizeLimitExceeded)
-					responseMessage := ldap.NewLDAPMessageWithProtocolOpAndControls(res, ldap.Controls{nc})
-					w.WriteMessage(responseMessage)
-					log.Printf(fmt.Sprintf("client [%d]: search with filter '%s' exceeded sizeLimit (%d)", m.Client.Numero, r.FilterString(), r.SizeLimit()))
-				} else {
-					res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess)
-					responseMessage := ldap.NewLDAPMessageWithProtocolOpAndControls(res, ldap.Controls{nc})
-					w.WriteMessage(responseMessage)
-					log.Printf(fmt.Sprintf("client [%d]: search with filter '%s', base object '%s' successful", m.Client.Numero, r.FilterString(), r.BaseObject()))
-				}
-
-				break
-			}
+		// FIXME: deadlock on 128 message
+		if m.MessageID().Int() == 127 { // m.MessageID().Int() == 127 - something wrong witch conn.Read(), deadlock on 128 message
+			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSizeLimitExceeded)
+			responseMessage := ldap.NewLDAPMessageWithProtocolOpAndControls(res, ldap.Controls{nc})
+			w.WriteMessage(responseMessage)
+			log.Printf(fmt.Sprintf("client [%d]: search with filter %s exceeds sizeLimit (127)", m.Client.Numero, r.FilterString()))
+		} else if sizeLimitReached {
+			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSizeLimitExceeded)
+			responseMessage := ldap.NewLDAPMessageWithProtocolOpAndControls(res, ldap.Controls{nc})
+			w.WriteMessage(responseMessage)
+			log.Printf(fmt.Sprintf("client [%d]: search with filter %s exceeds sizeLimit (%d)", m.Client.Numero, r.FilterString(), r.SizeLimit()))
+		} else {
+			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess)
+			responseMessage := ldap.NewLDAPMessageWithProtocolOpAndControls(res, ldap.Controls{nc})
+			w.WriteMessage(responseMessage)
+			log.Printf(fmt.Sprintf("client [%d]: search with filter %s, base object %s successful", m.Client.Numero, r.FilterString(), r.BaseObject()))
 		}
 	} else {
 		for _, e := range entries {
@@ -372,12 +355,12 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSizeLimitExceeded)
 			responseMessage := ldap.NewLDAPMessageWithProtocolOp(res)
 			w.WriteMessage(responseMessage)
-			log.Printf(fmt.Sprintf("client [%d]: search with filter '%s' exceeded sizeLimit (%d)", m.Client.Numero, r.FilterString(), r.SizeLimit()))
+			log.Printf(fmt.Sprintf("client [%d]: search with filter %s exceeds sizeLimit (%d)", m.Client.Numero, r.FilterString(), r.SizeLimit()))
 		} else {
 			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess)
 			responseMessage := ldap.NewLDAPMessageWithProtocolOp(res)
 			w.WriteMessage(responseMessage)
-			log.Printf(fmt.Sprintf("client [%d]: search with filter '%s', base object '%s' successful", m.Client.Numero, r.FilterString(), r.BaseObject()))
+			log.Printf(fmt.Sprintf("client [%d]: search with filter %s, base object %s successful", m.Client.Numero, r.FilterString(), r.BaseObject()))
 		}
 	}
 }
@@ -393,11 +376,11 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}()
 
 	r := m.GetCompareRequest()
-	log.Printf("client [%d]: performing compare '%s' for dn '%s'", m.Client.Numero, r.Ava(), r.Entry())
+	log.Printf("client [%d]: performing compare %s:%s for entry %s", m.Client.Numero, r.Ava().AttributeDesc(), r.Ava().AssertionValue(), r.Entry())
 
 	// entry must end with basedn (-b/--basedn)
-	if !strings.HasSuffix(string(r.Entry()), baseDN) {
-		diagMessage := fmt.Sprintf("wrong basedn for entry '%s'", r.Entry())
+	if !strings.HasSuffix(trimSpacesAfterComma(string(r.Entry())), baseDN) {
+		diagMessage := fmt.Sprintf("wrong entry %s: must end with basedn %s", r.Entry(), baseDN)
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultUnwillingToPerform)
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
@@ -406,13 +389,13 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
-	compareEntry := strings.SplitN(string(strings.TrimSuffix(string(r.Entry()), fmt.Sprintf(",%s", baseDN))), "=", 2)
-	compareAttrName := compareEntry[0]
-	compareAttrValue := compareEntry[1]
+	compareEntry := strings.SplitN(string(strings.TrimSuffix(trimSpacesAfterComma(string(r.Entry())), fmt.Sprintf(",%s", baseDN))), "=", 2)
+	compareEntryAttr := compareEntry[0]
+	compareEntryName := compareEntry[1]
 
-	// entry must look like 'cn=<COMMON_NAME>,dc=base,dc=dn
-	if compareAttrName != "cn" {
-		diagMessage := fmt.Sprintf("compare supported for cn attribute only (got %s)", compareAttrName)
+	// entry must look like cn=<COMMON_NAME>,dc=base,dc=dn
+	if compareEntryAttr != "cn" {
+		diagMessage := fmt.Sprintf("wrong entry %s: must look like cn=<COMMON_NAME>,%s", r.Entry(), baseDN)
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultUnwillingToPerform)
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
@@ -422,7 +405,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}
 
 	if memStoreTimeout <= 0 {
-		restData.update(m.Client.Numero, compareAttrValue, "")
+		restData.update(m.Client.Numero, compareEntryName, "")
 	}
 
 	for _, user := range restData.Users {
@@ -431,7 +414,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		}
 
 		// FIXME: check all elements of user.CN
-		if user.CN[0] != compareAttrValue {
+		if user.CN[0] != compareEntryName {
 			continue
 		}
 
@@ -439,7 +422,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareTrue)
 			w.Write(res)
 
-			log.Printf("client [%d]: compare '%s:%s' for dn '%s' TRUE", m.Client.Numero, r.Ava().AttributeDesc(), r.Ava().AssertionValue(), r.Entry())
+			log.Printf("client [%d]: compare %s:%s for entry %s TRUE", m.Client.Numero, r.Ava().AttributeDesc(), r.Ava().AssertionValue(), r.Entry())
 			return
 		}
 	}
@@ -450,7 +433,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		}
 
 		// FIXME: check all elements of group.CN
-		if group.CN[0] != compareAttrValue {
+		if group.CN[0] != compareEntryName {
 			continue
 		}
 
@@ -458,7 +441,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareTrue)
 			w.Write(res)
 
-			log.Printf("client [%d]: compare '%s:%s' for dn '%s' TRUE", m.Client.Numero, r.Ava().AttributeDesc(), r.Ava().AssertionValue(), r.Entry())
+			log.Printf("client [%d]: compare %s:%s for entry %s TRUE", m.Client.Numero, r.Ava().AttributeDesc(), r.Ava().AssertionValue(), r.Entry())
 			return
 		}
 	}
@@ -466,5 +449,80 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareFalse)
 	w.Write(res)
 
-	log.Printf("client [%d]: compare '%s for dn '%s' FALSE", m.Client.Numero, r.Ava(), r.Entry())
+	log.Printf("client [%d]: compare %s:%s for entry %s FALSE", m.Client.Numero, r.Ava().AttributeDesc(), r.Ava().AssertionValue(), r.Entry())
+}
+
+// handle modify (only userPassword for now)
+func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
+	r := m.GetModifyRequest()
+	log.Printf("client [%d]: performing modify for dn %s", m.Client.Numero, r.Object())
+
+	if !strings.HasSuffix(trimSpacesAfterComma(string(r.Object())), baseDN) {
+		diagMessage := fmt.Sprintf("wrong dn %s: must end with basedn %s", r.Object(), baseDN)
+		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultInvalidDNSyntax)
+		res.SetDiagnosticMessage(diagMessage)
+		w.Write(res)
+
+		log.Printf("client [%d]: modify error: %s", m.Client.Numero, diagMessage)
+		return
+	}
+
+	for _, c := range r.Changes() {
+		// check operation type
+		if c.Operation().Int() != ldap.ModifyRequestChangeOperationReplace {
+			diagMessage := fmt.Sprintf("wrong operation %d: only replace (2) is supported", c.Operation().Int())
+			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
+			res.SetDiagnosticMessage(diagMessage)
+			w.Write(res)
+
+			log.Printf("client [%d]: modify error: %s", m.Client.Numero, diagMessage)
+			return
+		}
+
+		// check attribute name
+		if c.Modification().Type_() != "userPassword" {
+			diagMessage := fmt.Sprintf("wrong attribute %s, only userPassword is supported", c.Modification().Type_())
+			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
+			res.SetDiagnosticMessage(diagMessage)
+			w.Write(res)
+
+			log.Printf("client [%d]: modify error: %s", m.Client.Numero, diagMessage)
+			return
+		}
+
+		modifyObject := strings.SplitN(string(strings.TrimSuffix(trimSpacesAfterComma(string(r.Object())), fmt.Sprintf(",%s", baseDN))), "=", 2)
+		if modifyObject[0] != "cn" {
+			diagMessage := fmt.Sprintf("wrong dn %s: wrong attribute %s", r.Object(), modifyObject[0])
+			res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidDNSyntax)
+			res.SetDiagnosticMessage(diagMessage)
+			w.Write(res)
+
+			log.Printf("client [%d]: modify error: %s", m.Client.Numero, diagMessage)
+			return
+		}
+
+		if len(c.Modification().Vals()) > 1 {
+			diagMessage := "more than 1 value for userPassword is not supported"
+			res := ldapserver.NewBindResponse(ldapserver.LDAPResultUnwillingToPerform)
+			res.SetDiagnosticMessage(diagMessage)
+			w.Write(res)
+
+			log.Printf("client [%d]: modify error: %s", m.Client.Numero, diagMessage)
+			return
+		}
+
+		if err := doModify(modifyObject[1], string(c.Modification().Vals()[0])); err != nil {
+			res := ldapserver.NewBindResponse(ldapserver.LDAPResultOther)
+			res.SetDiagnosticMessage(err.Error())
+			w.Write(res)
+
+			log.Printf("client [%d]: modify error: %s", m.Client.Numero, err)
+			return
+		}
+	}
+
+	res := ldapserver.NewModifyResponse(ldapserver.LDAPResultSuccess)
+	w.Write(res)
+
+	log.Printf("client [%d]: modify for dn %s successful", m.Client.Numero, r.Object())
 }

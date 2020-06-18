@@ -11,11 +11,11 @@ import (
 )
 
 const (
-	urlLDAPUsers  = "/ldap/user?CustomField=true"
+	urlLDAPUsers  = "/ldap/user"
 	urlLDAPGroups = "/ldap/group"
 )
 
-type restUserAttrs struct {
+type restUser struct {
 	SSHPublicKey  []string `json:"sshPublicKey"`
 	UIDNumber     []string `json:"uidNumber"`
 	DisplayName   []string `json:"displayName"`
@@ -31,7 +31,7 @@ type restUserAttrs struct {
 	IPHostNumber  []string `json:"ipHostNumber"`
 }
 
-type restGroupAttrs struct {
+type restGroup struct {
 	Description []string `json:"description"`
 	OU          []string `json:"ou"`
 	CN          []string `json:"cn"`
@@ -39,16 +39,16 @@ type restGroupAttrs struct {
 	MemberUID   []string `json:"memberUid"`
 }
 
-type restAttrs struct {
-	Users  []restUserAttrs
-	Groups []restGroupAttrs
+type restObjects struct {
+	Users  []restUser
+	Groups []restGroup
 }
 
-var m sync.Mutex
+var dataMutex sync.Mutex
 
-func (data *restAttrs) update(cNum int, cn string, oType string) {
-	m.Lock()
-	defer m.Unlock()
+func (data *restObjects) update(cNum int, cn string, oType string) {
+	dataMutex.Lock()
+	defer dataMutex.Unlock()
 
 	if len(restFile) > 0 {
 		log.Printf("client [%d]: getting data from file '%s'", cNum, restFile)
@@ -59,12 +59,12 @@ func (data *restAttrs) update(cNum int, cn string, oType string) {
 			return
 		}
 
-		fileData := []restAttrs{}
+		fileData := []restObjects{}
 		if err := json.Unmarshal(fileContents, &fileData); err != nil {
 			log.Printf("client [%d]: error unmarshalling file data: %s\n", cNum, err)
 		}
 
-		newData := restAttrs{}
+		newData := restObjects{}
 		for _, d := range fileData {
 			newData.Users = append(newData.Users, d.Users...)
 			newData.Groups = append(newData.Groups, d.Groups...)
@@ -134,7 +134,7 @@ func (data *restAttrs) update(cNum int, cn string, oType string) {
 	}
 }
 
-func doRequest(reqURL string) ([]byte, error) {
+func doRequest(reqURL string, body []byte) ([]byte, error) {
 	req := fasthttp.AcquireRequest()
 	resp := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseRequest(req)
@@ -143,6 +143,12 @@ func doRequest(reqURL string) ([]byte, error) {
 	req.SetRequestURI(reqURL)
 	if len(authToken) > 0 {
 		req.Header.Add("Authorization", fmt.Sprintf("Token %s", authToken))
+	}
+
+	if len(body) > 0 {
+		req.Header.SetContentType("application/json")
+		req.Header.SetMethod("PUT")
+		req.SetBody(body)
 	}
 
 	httpClient := &fasthttp.Client{}
@@ -154,15 +160,15 @@ func doRequest(reqURL string) ([]byte, error) {
 }
 
 // get users data from rest
-func getRESTUserData(cNum int, userName string) (userData []restUserAttrs) {
+func getRESTUserData(cNum int, userName string) (userData []restUser) {
 	reqURL := fmt.Sprintf("%s%s", restURL, urlLDAPUsers)
 	if len(userName) > 0 {
-		reqURL = fmt.Sprintf("%s&username=%s", reqURL, userName)
+		reqURL = fmt.Sprintf("%s?cn=%s", reqURL, userName)
 	}
 
 	log.Printf("client [%d]: getting users data, url '%s'", cNum, reqURL)
 
-	respData, err := doRequest(reqURL)
+	respData, err := doRequest(reqURL, []byte{})
 	if err != nil {
 		log.Printf("client [%d]: error getting response: %s\n", cNum, err)
 	}
@@ -184,7 +190,7 @@ func getRESTUserData(cNum int, userName string) (userData []restUserAttrs) {
 }
 
 // get groups data from rest
-func getRESTGroupData(cNum int, groupName string) (groupData []restGroupAttrs) {
+func getRESTGroupData(cNum int, groupName string) (groupData []restGroup) {
 	reqURL := fmt.Sprintf("%s%s", restURL, urlLDAPGroups)
 	if len(groupName) > 0 {
 		reqURL = fmt.Sprintf("%s?name=%s", reqURL, groupName)
@@ -192,7 +198,7 @@ func getRESTGroupData(cNum int, groupName string) (groupData []restGroupAttrs) {
 
 	log.Printf("client [%d]: getting groups data, url '%s'", cNum, reqURL)
 
-	respData, err := doRequest(reqURL)
+	respData, err := doRequest(reqURL, []byte{})
 	if err != nil {
 		log.Printf("client [%d]: error getting http response: %s\n", cNum, err)
 	}

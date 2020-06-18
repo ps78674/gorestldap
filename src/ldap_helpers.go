@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -8,6 +10,11 @@ import (
 
 	ldap "github.com/ps78674/goldap/message"
 )
+
+type passwordData struct {
+	CN           string `json:"cn"`
+	UserPassword string `json:"userPassword"`
+}
 
 // apply search filter for each object
 func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
@@ -18,13 +25,13 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 
 		rValue := reflect.ValueOf(o)
 		for i := 0; i < rValue.Type().NumField(); i++ {
-			if attrName == "objectclass" && fmt.Sprintf("%T", o) == "main.restUserAttrs" {
+			if attrName == "objectclass" && fmt.Sprintf("%T", o) == "main.restUser" {
 				switch attrValue {
 				case "posixAccount", "shadowAccount", "organizationalPerson", "inetOrgPerson", "person":
 					return true, nil
 				}
 			}
-			if attrName == "objectclass" && fmt.Sprintf("%T", o) == "main.restGroupAttrs" {
+			if attrName == "objectclass" && fmt.Sprintf("%T", o) == "main.restGroup" {
 				switch attrValue {
 				case "posixGroup":
 					return true, nil
@@ -82,6 +89,20 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 				return true, nil
 			}
 		}
+	case "message.FilterSubstrings":
+		attrName := strings.ToLower(reflect.ValueOf(f).Field(0).String()) // CN|cn -> compare in lowercase
+		attrValues := reflect.ValueOf(f).Field(1)
+
+		rValue := reflect.ValueOf(o)
+		for i := 0; i < rValue.Type().NumField(); i++ {
+			if strings.ToLower(rValue.Type().Field(i).Tag.Get("json")) == attrName {
+				for j, k := 0, 0; j < rValue.Field(i).Len() && k < attrValues.Len(); j, k = j+1, k+1 {
+					if strings.HasPrefix(rValue.Field(i).Index(j).String(), fmt.Sprint(attrValues.Index(k))) {
+						return true, nil
+					}
+				}
+			}
+		}
 	default:
 		return false, fmt.Errorf("unsupported filter type '%T'", f)
 	}
@@ -117,4 +138,24 @@ func newLDAPAttributeValues(values []string) (out []ldap.AttributeValue) {
 func trimSpacesAfterComma(s string) string {
 	re := regexp.MustCompile("(,[\\s]+)")
 	return re.ReplaceAllString(s, ",")
+}
+
+// modify password via api
+func doModify(cn string, pw string) error {
+	b, err := json.Marshal(passwordData{CN: cn, UserPassword: pw})
+	if err != nil {
+		return err
+	}
+
+	reqURL := fmt.Sprintf("%s%s", restURL, urlLDAPUsers)
+	nb, err := doRequest(reqURL, b)
+	if err != nil {
+		return err
+	}
+
+	if bytes.Compare(b, nb) != 0 {
+		return fmt.Errorf("%s", nb)
+	}
+
+	return nil
 }

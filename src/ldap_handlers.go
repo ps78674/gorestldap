@@ -329,13 +329,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 		nc := ldap.NewControl(ldap.LDAPOID(ldap.ControlTypePaging), cpCriticality, ldap.OCTETSTRING(b.Bytes()))
 
-		// FIXME: deadlock on 128 message
-		if m.MessageID().Int() == 127 { // m.MessageID().Int() == 127 - something wrong witch conn.Read(), deadlock on 128 message
-			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSizeLimitExceeded)
-			responseMessage := ldap.NewLDAPMessageWithProtocolOpAndControls(res, ldap.Controls{nc})
-			w.WriteMessage(responseMessage)
-			log.Printf(fmt.Sprintf("client [%d]: search with filter %s exceeds sizeLimit (127)", m.Client.Numero, r.FilterString()))
-		} else if sizeLimitReached {
+		if sizeLimitReached {
 			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSizeLimitExceeded)
 			responseMessage := ldap.NewLDAPMessageWithProtocolOpAndControls(res, ldap.Controls{nc})
 			w.WriteMessage(responseMessage)

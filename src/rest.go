@@ -59,24 +59,14 @@ func (data *restObjects) update(cNum int, cn string, oType string) {
 			return
 		}
 
-		fileData := []restObjects{}
+		fileData := restObjects{}
 		if err := json.Unmarshal(fileContents, &fileData); err != nil {
 			log.Printf("client [%d]: error unmarshalling file data: %s\n", cNum, err)
+			return
 		}
 
-		newData := restObjects{}
-		for _, d := range fileData {
-			newData.Users = append(newData.Users, d.Users...)
-			newData.Groups = append(newData.Groups, d.Groups...)
-		}
-
-		if len(newData.Users) > 0 {
-			data.Users = newData.Users
-		}
-
-		if len(newData.Groups) > 0 {
-			data.Groups = newData.Groups
-		}
+		data.Users = fileData.Users
+		data.Groups = fileData.Groups
 
 		return
 	}

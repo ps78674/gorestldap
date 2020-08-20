@@ -37,6 +37,11 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 					return true, nil
 				}
 			}
+			if attrName == "entrydn" && strings.HasSuffix(attrValue, baseDN) {
+				newValues := strings.SplitN(strings.TrimSuffix(attrValue, fmt.Sprintf(",%s", baseDN)), "=", 2)
+				attrName = newValues[0]
+				attrValue = newValues[1]
+			}
 
 			if strings.ToLower(rValue.Type().Field(i).Tag.Get("json")) == attrName {
 				for j := 0; j < rValue.Field(i).Len(); j++ {
@@ -84,7 +89,7 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	case "message.FilterPresent":
 		rValue := reflect.ValueOf(o)
 		for i := 0; i < rValue.Type().NumField(); i++ {
-			if strings.ToLower(reflect.ValueOf(f).String()) == "objectclass" ||
+			if strings.ToLower(reflect.ValueOf(f).String()) == "objectclass" || strings.ToLower(reflect.ValueOf(f).String()) == "entrydn" ||
 				(strings.ToLower(rValue.Type().Field(i).Tag.Get("json")) == strings.ToLower(reflect.ValueOf(f).String()) && rValue.Field(i).Len() > 0) {
 				return true, nil
 			}

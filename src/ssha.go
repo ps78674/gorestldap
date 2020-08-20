@@ -3,27 +3,34 @@ package main
 import (
 	"crypto/sha1"
 	"encoding/base64"
+	"fmt"
 )
 
 // validate password over SSHA hash
-func validatePassword(password string, hash string) bool {
-	if len(hash) < 7 || string(hash[0:6]) != "{SSHA}" {
-		return false
+func validatePassword(password string, hash string) (bool, error) {
+	if len(hash) < 7 {
+		return false, fmt.Errorf("wrong hash length")
+	}
+	if string(hash[0:6]) != "{SSHA}" {
+		return false, fmt.Errorf("hash must start with {SSHA} scheme")
 	}
 
 	data, err := base64.StdEncoding.DecodeString(hash[6:])
-	if len(data) < 21 || err != nil {
-		return false
+	if err != nil {
+		return false, err
+	}
+	if len(data) < 21 {
+		return false, fmt.Errorf("no salt in hash")
 	}
 
 	newhash := createHash(password, data[20:])
 	hashedpw := base64.StdEncoding.EncodeToString(newhash)
 
 	if hashedpw == hash[6:] {
-		return true
+		return true, nil
 	}
 
-	return false
+	return false, nil
 }
 
 // create SSHA hashed password

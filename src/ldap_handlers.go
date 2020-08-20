@@ -78,7 +78,8 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	// FIXME: check all elements of u.CN
 	userData := restUser{}
 	for _, u := range restData.Users {
-		if u.CN[0] == bindEntryName {
+		// compare in lowercase makes bind dn case insensitive
+		if strings.ToLower(u.CN[0]) == strings.ToLower(bindEntryName) {
 			userData = u
 			break
 		}
@@ -96,8 +97,14 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}
 
 	// FIXME: check all elements of userData.UserPassword
-	if !validatePassword(r.AuthenticationSimple().String(), userData.UserPassword[0]) {
+	ok, err := validatePassword(r.AuthenticationSimple().String(), userData.UserPassword[0])
+	if !ok {
 		diagMessage := fmt.Sprintf("wrong password for user %s", r.Name())
+
+		if err != nil {
+			diagMessage = fmt.Sprintf("wrong password for user %s: %s", r.Name(), err)
+		}
+
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)

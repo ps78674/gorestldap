@@ -26,21 +26,32 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 		rValue := reflect.ValueOf(o)
 		for i := 0; i < rValue.Type().NumField(); i++ {
 			if attrName == "objectclass" && fmt.Sprintf("%T", o) == "main.restUser" {
-				switch attrValue {
-				case "posixAccount", "shadowAccount", "organizationalPerson", "inetOrgPerson", "person":
+				switch strings.ToLower(attrValue) {
+				case "posixaccount", "shadowaccount", "organizationalperson", "inetorgperson", "person":
 					return true, nil
 				}
 			}
 			if attrName == "objectclass" && fmt.Sprintf("%T", o) == "main.restGroup" {
-				switch attrValue {
-				case "posixGroup":
+				switch strings.ToLower(attrValue) {
+				case "posixgroup":
 					return true, nil
 				}
+			}
+			if attrName == "entrydn" && strings.HasSuffix(attrValue, baseDN) {
+				newValues := strings.SplitN(strings.TrimSuffix(attrValue, fmt.Sprintf(",%s", baseDN)), "=", 2)
+				attrName = newValues[0]
+				attrValue = newValues[1]
 			}
 
 			if strings.ToLower(rValue.Type().Field(i).Tag.Get("json")) == attrName {
 				for j := 0; j < rValue.Field(i).Len(); j++ {
-					if rValue.Field(i).Index(j).String() == attrValue {
+					restValue := rValue.Field(i).Index(j).String()
+					// compare values case insensitive for all attrs except userPassword
+					if strings.ToLower(attrName) != "userpassword" {
+						restValue = strings.ToLower(restValue)
+						attrValue = strings.ToLower(attrValue)
+					}
+					if restValue == attrValue {
 						return true, nil
 					}
 				}
@@ -84,7 +95,7 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	case "message.FilterPresent":
 		rValue := reflect.ValueOf(o)
 		for i := 0; i < rValue.Type().NumField(); i++ {
-			if strings.ToLower(reflect.ValueOf(f).String()) == "objectclass" ||
+			if strings.ToLower(reflect.ValueOf(f).String()) == "objectclass" || strings.ToLower(reflect.ValueOf(f).String()) == "entrydn" ||
 				(strings.ToLower(rValue.Type().Field(i).Tag.Get("json")) == strings.ToLower(reflect.ValueOf(f).String()) && rValue.Field(i).Len() > 0) {
 				return true, nil
 			}
@@ -97,7 +108,14 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 		for i := 0; i < rValue.Type().NumField(); i++ {
 			if strings.ToLower(rValue.Type().Field(i).Tag.Get("json")) == attrName {
 				for j, k := 0, 0; j < rValue.Field(i).Len() && k < attrValues.Len(); j, k = j+1, k+1 {
-					if strings.HasPrefix(rValue.Field(i).Index(j).String(), fmt.Sprint(attrValues.Index(k))) {
+					// compare values case insensitive for all attrs except userPassword
+					restValue := rValue.Field(i).Index(j).String()
+					attrValue := fmt.Sprint(attrValues.Index(k))
+					if strings.ToLower(attrName) != "userpassword" {
+						restValue = strings.ToLower(restValue)
+						attrValue = strings.ToLower(attrValue)
+					}
+					if strings.HasPrefix(restValue, attrValue) {
 						return true, nil
 					}
 				}
@@ -116,7 +134,13 @@ func doCompare(o interface{}, attrName string, attrValue string) bool {
 	for i := 0; i < rValue.Type().NumField(); i++ {
 		if strings.ToLower(rValue.Type().Field(i).Tag.Get("json")) == strings.ToLower(attrName) {
 			for j := 0; j < rValue.Field(i).Len(); j++ {
-				if rValue.Field(i).Index(j).String() == attrValue {
+				// compare values case insensitive for all attrs except userPassword
+				restValue := rValue.Field(i).Index(j).String()
+				if strings.ToLower(attrName) != "userpassword" {
+					restValue = strings.ToLower(restValue)
+					attrValue = strings.ToLower(attrValue)
+				}
+				if restValue == attrValue {
 					return true
 				}
 			}

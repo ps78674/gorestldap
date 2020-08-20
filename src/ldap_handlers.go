@@ -78,7 +78,8 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	// FIXME: check all elements of u.CN
 	userData := restUser{}
 	for _, u := range restData.Users {
-		if u.CN[0] == bindEntryName {
+		// compare in lowercase makes bind dn case insensitive
+		if strings.ToLower(u.CN[0]) == strings.ToLower(bindEntryName) {
 			userData = u
 			break
 		}

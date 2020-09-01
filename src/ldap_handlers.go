@@ -217,7 +217,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 		// create entry
 		e := ldapserver.NewSearchResultEntry(fmt.Sprintf(entryName))
-		e.AddAttribute("objectClass", "posixAccount", "shadowAccount", "organizationalPerson", "inetOrgPerson", "person")
+		e.AddAttribute("objectClass", "top", "posixAccount", "shadowAccount", "organizationalPerson", "inetOrgPerson", "person")
 		e.AddAttribute("hasSubordinates", "FALSE")
 		e.AddAttribute("cn", newLDAPAttributeValues(user.CN)...)
 		e.AddAttribute("homeDirectory", newLDAPAttributeValues(user.HomeDirectory)...)
@@ -273,7 +273,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 		// create entry
 		e := ldapserver.NewSearchResultEntry(entryName)
-		e.AddAttribute("objectClass", "posixGroup")
+		e.AddAttribute("objectClass", "top", "posixGroup")
 		e.AddAttribute("hasSubordinates", "FALSE")
 		e.AddAttribute("description", newLDAPAttributeValues(group.Description)...)
 		e.AddAttribute("cn", newLDAPAttributeValues(group.CN)...)

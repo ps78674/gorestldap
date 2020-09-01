@@ -27,13 +27,13 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 		for i := 0; i < rValue.Type().NumField(); i++ {
 			if attrName == "objectclass" && fmt.Sprintf("%T", o) == "main.restUser" {
 				switch strings.ToLower(attrValue) {
-				case "posixaccount", "shadowaccount", "organizationalperson", "inetorgperson", "person":
+				case "top", "posixaccount", "shadowaccount", "organizationalperson", "inetorgperson", "person":
 					return true, nil
 				}
 			}
 			if attrName == "objectclass" && fmt.Sprintf("%T", o) == "main.restGroup" {
 				switch strings.ToLower(attrValue) {
-				case "posixgroup":
+				case "top", "posixgroup":
 					return true, nil
 				}
 			}

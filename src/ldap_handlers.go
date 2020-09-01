@@ -245,6 +245,8 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 					e.AddAttribute("objectClass", "top", "posixAccount", "shadowAccount", "organizationalPerson", "inetOrgPerson", "person")
 				case "hassubordinates":
 					e.AddAttribute("hasSubordinates", "FALSE")
+				case "entrydn":
+					e.AddAttribute("entryDN", ldap.AttributeValue(entryName))
 				default:
 					values := getAttrValues(user, attr)
 					if len(values) > 0 {
@@ -314,6 +316,8 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 					e.AddAttribute("objectClass", "top", "posixGroup")
 				case "hassubordinates":
 					e.AddAttribute("hasSubordinates", "FALSE")
+				case "entrydn":
+					e.AddAttribute("entryDN", ldap.AttributeValue(entryName))
 				default:
 					values := getAttrValues(group, attr)
 					if len(values) > 0 {

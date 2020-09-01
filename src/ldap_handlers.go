@@ -9,24 +9,6 @@ import (
 	ldapserver "github.com/ps78674/ldapserver"
 )
 
-// search DSE
-func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-	log.Printf("client [%d]: performing search DSE", m.Client.Numero)
-
-	e := ldapserver.NewSearchResultEntry("")
-	e.AddAttribute("vendorVersion", ldap.AttributeValue(versionString))
-	e.AddAttribute("objectClass", "top", "LDAProotDSE")
-	e.AddAttribute("supportedLDAPVersion", "3")
-	e.AddAttribute("supportedControl", ldap.ControlTypePaging)
-	e.AddAttribute("namingContexts", ldap.AttributeValue(baseDN))
-	// e.AddAttribute("supportedSASLMechanisms", "")
-
-	w.Write(e)
-	w.Write(ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess))
-
-	log.Printf(fmt.Sprintf("client [%d]: search DSE successful", m.Client.Numero))
-}
-
 // handle bind
 func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	r := m.GetBindRequest()
@@ -117,6 +99,24 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	w.Write(res)
 
 	log.Printf("client [%d]: bind with dn %s successful", m.Client.Numero, r.Name())
+}
+
+// search DSE
+func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message) {
+	log.Printf("client [%d]: performing search DSE", m.Client.Numero)
+
+	e := ldapserver.NewSearchResultEntry("")
+	e.AddAttribute("vendorVersion", ldap.AttributeValue(versionString))
+	e.AddAttribute("objectClass", "top", "LDAProotDSE")
+	e.AddAttribute("supportedLDAPVersion", "3")
+	e.AddAttribute("supportedControl", ldap.ControlTypePaging)
+	e.AddAttribute("namingContexts", ldap.AttributeValue(baseDN))
+	// e.AddAttribute("supportedSASLMechanisms", "")
+
+	w.Write(e)
+	w.Write(ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess))
+
+	log.Printf(fmt.Sprintf("client [%d]: search DSE successful", m.Client.Numero))
 }
 
 // handle search

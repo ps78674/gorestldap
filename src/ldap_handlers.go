@@ -357,15 +357,20 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		}
 	}
 
+	entriesWritten := 0
+
 	// if paging requested -> return results in pages
 	if cp.PageSize().Int() > 0 {
 		var cpCookie ldap.OCTETSTRING
-		for c := 0; c != cp.PageSize().Int() && m.Client.EntriesSent < len(entries); {
+		for entriesWritten = 0; entriesWritten != cp.PageSize().Int() && m.Client.EntriesSent < len(entries); {
 			w.Write(entries[m.Client.EntriesSent]) // m.Client.EntriesSent - how many entries already been sent
 			m.Client.EntriesSent++
-			c++
+			entriesWritten++
 
-			cpCookie = ldap.OCTETSTRING(programName) // use programName instead of random cookie
+			// if all entries are sent - send empty cookie
+			if m.Client.EntriesSent != len(entries) && entriesWritten == cp.PageSize().Int() {
+				cpCookie = ldap.OCTETSTRING(programName) // use programName instead of random cookie
+			}
 		}
 
 		ncp := ldap.NewControlPaging(ldap.INTEGER(len(entries)), cpCookie)

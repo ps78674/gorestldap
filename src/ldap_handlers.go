@@ -373,6 +373,11 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			}
 		}
 
+		// if all entries are sent - set m.Client.EntriesSent to 0 for next search
+		if m.Client.EntriesSent == len(entries) && len(cpCookie) == 0 {
+			m.Client.EntriesSent = 0
+		}
+
 		ncp := ldap.NewControlPaging(ldap.INTEGER(len(entries)), cpCookie)
 		b, err := ncp.WriteControlPaging()
 		if err != nil {

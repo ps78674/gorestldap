@@ -130,8 +130,8 @@ func main() {
 
 	//Create routes bindings
 	routes := ldapserver.NewRouteMux()
-	routes.Search(handleSearchDSE).BaseDn("").Scope(ldapserver.SearchRequestScopeBaseObject).Filter("(objectclass=*)")
 	routes.Bind(handleBind)
+	routes.Search(handleSearchDSE).BaseDn("").Scope(ldapserver.SearchRequestScopeBaseObject).Filter("(objectclass=*)")
 	routes.Search(handleSearch)
 	routes.Compare(handleCompare)
 

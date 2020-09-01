@@ -183,3 +183,14 @@ func doModify(cn string, pw string) error {
 
 	return nil
 }
+
+// get struct field values by field name
+func getAttrValues(o interface{}, fieldName string) (ret []string) {
+	rValue := reflect.Indirect(reflect.ValueOf(o).FieldByNameFunc(func(n string) bool { return strings.ToLower(n) == fieldName }))
+
+	if rValue.IsValid() {
+		ret = rValue.Interface().([]string)
+	}
+
+	return
+}

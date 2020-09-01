@@ -217,21 +217,42 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 		// create entry
 		e := ldapserver.NewSearchResultEntry(fmt.Sprintf(entryName))
-		e.AddAttribute("objectClass", "top", "posixAccount", "shadowAccount", "organizationalPerson", "inetOrgPerson", "person")
-		e.AddAttribute("hasSubordinates", "FALSE")
-		e.AddAttribute("cn", newLDAPAttributeValues(user.CN)...)
-		e.AddAttribute("homeDirectory", newLDAPAttributeValues(user.HomeDirectory)...)
-		e.AddAttribute("uid", newLDAPAttributeValues(user.UID)...)
-		e.AddAttribute("uidNumber", newLDAPAttributeValues(user.UIDNumber)...)
-		e.AddAttribute("mail", newLDAPAttributeValues(user.Mail)...)
-		e.AddAttribute("displayName", newLDAPAttributeValues(user.DisplayName)...)
-		e.AddAttribute("givenName", newLDAPAttributeValues(user.GivenName)...)
-		e.AddAttribute("sn", newLDAPAttributeValues(user.SN)...)
-		e.AddAttribute("userPassword", newLDAPAttributeValues(user.UserPassword)...)
-		e.AddAttribute("loginShell", newLDAPAttributeValues(user.LoginShell)...)
-		e.AddAttribute("gidNumber", newLDAPAttributeValues(user.GIDNumber)...)
-		e.AddAttribute("sshPublicKey", newLDAPAttributeValues(user.SSHPublicKey)...)
-		e.AddAttribute("ipHostNumber", newLDAPAttributeValues(user.IPHostNumber)...)
+
+		// if no specific attributes requested -> add all attributes
+		if len(r.Attributes()) == 0 {
+			e.AddAttribute("objectClass", "top", "posixAccount", "shadowAccount", "organizationalPerson", "inetOrgPerson", "person")
+			e.AddAttribute("hasSubordinates", "FALSE")
+			e.AddAttribute("cn", newLDAPAttributeValues(user.CN)...)
+			e.AddAttribute("homeDirectory", newLDAPAttributeValues(user.HomeDirectory)...)
+			e.AddAttribute("uid", newLDAPAttributeValues(user.UID)...)
+			e.AddAttribute("uidNumber", newLDAPAttributeValues(user.UIDNumber)...)
+			e.AddAttribute("mail", newLDAPAttributeValues(user.Mail)...)
+			e.AddAttribute("displayName", newLDAPAttributeValues(user.DisplayName)...)
+			e.AddAttribute("givenName", newLDAPAttributeValues(user.GivenName)...)
+			e.AddAttribute("sn", newLDAPAttributeValues(user.SN)...)
+			e.AddAttribute("userPassword", newLDAPAttributeValues(user.UserPassword)...)
+			e.AddAttribute("loginShell", newLDAPAttributeValues(user.LoginShell)...)
+			e.AddAttribute("gidNumber", newLDAPAttributeValues(user.GIDNumber)...)
+			e.AddAttribute("sshPublicKey", newLDAPAttributeValues(user.SSHPublicKey)...)
+			e.AddAttribute("ipHostNumber", newLDAPAttributeValues(user.IPHostNumber)...)
+		}
+
+		// if some attributes requested -> add only those attributes
+		if len(r.Attributes()) > 0 && r.Attributes()[0] != "1.1" {
+			for _, a := range r.Attributes() {
+				switch attr := strings.ToLower(string(a)); attr {
+				case "objectclass":
+					e.AddAttribute("objectClass", "top", "posixAccount", "shadowAccount", "organizationalPerson", "inetOrgPerson", "person")
+				case "hassubordinates":
+					e.AddAttribute("hasSubordinates", "FALSE")
+				default:
+					values := getAttrValues(user, attr)
+					if len(values) > 0 {
+						e.AddAttribute(ldap.AttributeDescription(a), newLDAPAttributeValues(values)...)
+					}
+				}
+			}
+		}
 
 		entries = append(entries, e)
 		sizeCounter++
@@ -273,13 +294,34 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 		// create entry
 		e := ldapserver.NewSearchResultEntry(entryName)
-		e.AddAttribute("objectClass", "top", "posixGroup")
-		e.AddAttribute("hasSubordinates", "FALSE")
-		e.AddAttribute("description", newLDAPAttributeValues(group.Description)...)
-		e.AddAttribute("cn", newLDAPAttributeValues(group.CN)...)
-		e.AddAttribute("gidNumber", newLDAPAttributeValues(group.GIDNumber)...)
-		e.AddAttribute("ou", newLDAPAttributeValues(group.OU)...)
-		e.AddAttribute("memberUid", newLDAPAttributeValues(group.MemberUID)...)
+
+		// if no specific attributes requested -> add all attributes
+		if len(r.Attributes()) == 0 {
+			e.AddAttribute("objectClass", "top", "posixGroup")
+			e.AddAttribute("hasSubordinates", "FALSE")
+			e.AddAttribute("description", newLDAPAttributeValues(group.Description)...)
+			e.AddAttribute("cn", newLDAPAttributeValues(group.CN)...)
+			e.AddAttribute("gidNumber", newLDAPAttributeValues(group.GIDNumber)...)
+			e.AddAttribute("ou", newLDAPAttributeValues(group.OU)...)
+			e.AddAttribute("memberUid", newLDAPAttributeValues(group.MemberUID)...)
+		}
+
+		// if some attributes requested -> add only those attributes
+		if len(r.Attributes()) > 0 && r.Attributes()[0] != "1.1" {
+			for _, a := range r.Attributes() {
+				switch attr := strings.ToLower(string(a)); attr {
+				case "objectclass":
+					e.AddAttribute("objectClass", "top", "posixGroup")
+				case "hassubordinates":
+					e.AddAttribute("hasSubordinates", "FALSE")
+				default:
+					values := getAttrValues(group, attr)
+					if len(values) > 0 {
+						e.AddAttribute(ldap.AttributeDescription(a), newLDAPAttributeValues(values)...)
+					}
+				}
+			}
+		}
 
 		entries = append(entries, e)
 		sizeCounter++

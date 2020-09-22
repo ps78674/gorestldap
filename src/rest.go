@@ -16,27 +16,27 @@ const (
 )
 
 type restUser struct {
-	SSHPublicKey  []string `json:"sshPublicKey"`
-	UIDNumber     []string `json:"uidNumber"`
-	DisplayName   []string `json:"displayName"`
-	GivenName     []string `json:"givenName"`
-	Mail          []string `json:"mail"`
-	GIDNumber     []string `json:"gidNumber"`
-	CN            []string `json:"cn"`
-	SN            []string `json:"sn"`
-	UserPassword  []string `json:"userPassword"`
-	HomeDirectory []string `json:"homeDirectory"`
-	UID           []string `json:"uid"`
-	LoginShell    []string `json:"loginShell"`
-	IPHostNumber  []string `json:"ipHostNumber"`
+	SSHPublicKey  []string
+	UIDNumber     []string
+	DisplayName   []string
+	GivenName     []string
+	Mail          []string
+	GIDNumber     []string
+	CN            []string
+	SN            []string
+	UserPassword  []string
+	HomeDirectory []string
+	UID           []string
+	LoginShell    []string
+	IPHostNumber  []string
 }
 
 type restGroup struct {
-	Description []string `json:"description"`
-	OU          []string `json:"ou"`
-	CN          []string `json:"cn"`
-	GIDNumber   []string `json:"gidNumber"`
-	MemberUID   []string `json:"memberUid"`
+	Description []string
+	OU          []string
+	CN          []string
+	GIDNumber   []string
+	MemberUID   []string
 }
 
 type restObjects struct {

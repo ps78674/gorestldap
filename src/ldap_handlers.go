@@ -520,7 +520,6 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	r := m.GetModifyRequest()
 	log.Printf("client [%d]: modify dn=\"%s\"", m.Client.Numero, r.Object())
-	log.Printf("client [%d]: modify attr=%s", m.Client.Numero, r.Object())
 
 	if !strings.HasSuffix(trimSpacesAfterComma(string(r.Object())), baseDN) {
 		diagMessage := fmt.Sprintf("wrong dn \"%s\": must end with basedn \"%s\"", r.Object(), baseDN)

@@ -427,7 +427,14 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}
 
 	res := ldapserver.NewSearchResultDoneResponse(resultCode)
-	responseMessage := ldap.NewLDAPMessageWithProtocolOpAndControls(res, ldap.Controls{nc})
+
+	responseMessage := &ldap.LDAPMessage{}
+	if len(nc.ControlType()) > 0 {
+		responseMessage = ldap.NewLDAPMessageWithProtocolOpAndControls(res, ldap.Controls{nc})
+	} else {
+		responseMessage = ldap.NewLDAPMessageWithProtocolOp(res)
+	}
+
 	w.WriteMessage(responseMessage)
 
 	log.Printf("client [%d]: search result=OK nentries=%d", m.Client.Numero, entriesWritten)

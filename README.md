@@ -47,6 +47,9 @@ Example: `curl localhost:8080/callback -X POST -H "Content-Type: application/jso
 ```
 [
     {
+        "entryUUID": [
+            "11111111-1111-1111-1111-111111111111"
+        ],
         "sshPublicKey": [
             "ssh-rsa RAW_PUB_KEY hostname.local"
         ],
@@ -96,6 +99,9 @@ Example: `curl localhost:8080/callback -X POST -H "Content-Type: application/jso
 ```
 [
     {
+        "entryUUID": [
+            "11111111-1111-1111-1111-111111111111"
+        ],
         "description": [
             "Admin group"
         ],
@@ -125,8 +131,8 @@ ssl off
 filter passwd (objectClass=posixAccount)
 filter shadow (objectClass=shadowAccount)
 filter group (objectClass=posixGroup)
-#filter passwd (&(objectClass=posixAccount)(ipHostNumber=SERVER_IP_ADDRES))
-#filter shadow (&(objectClass=posixAccount)(ipHostNumber=SERVER_IP_ADDRES))
+#filter passwd (&(objectClass=posixAccount)(ipHostNumber=SERVER_IP_ADDRESS))
+#filter shadow (&(objectClass=posixAccount)(ipHostNumber=SERVER_IP_ADDRESS))
 ```
 
 ### **Sample ldapsearch output**

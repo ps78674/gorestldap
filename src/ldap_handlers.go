@@ -282,6 +282,8 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 					e.AddAttribute("hasSubordinates", "FALSE")
 				case "entrydn":
 					e.AddAttribute("entryDN", ldap.AttributeValue(entryName))
+				case "entryuuid":
+					e.AddAttribute("entryUUID", ldap.AttributeValue(user.EntryUUID[0]))
 				default:
 					values := getAttrValues(user, attr)
 					if len(values) > 0 {
@@ -353,6 +355,8 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 					e.AddAttribute("hasSubordinates", "FALSE")
 				case "entrydn":
 					e.AddAttribute("entryDN", ldap.AttributeValue(entryName))
+				case "entryuuid":
+					e.AddAttribute("entryUUID", ldap.AttributeValue(group.EntryUUID[0]))
 				default:
 					values := getAttrValues(group, attr)
 					if len(values) > 0 {

@@ -16,6 +16,7 @@ const (
 )
 
 type restUser struct {
+	EntryUUID     []string
 	SSHPublicKey  []string
 	UIDNumber     []string
 	DisplayName   []string
@@ -32,6 +33,7 @@ type restUser struct {
 }
 
 type restGroup struct {
+	EntryUUID   []string
 	Description []string
 	OU          []string
 	CN          []string

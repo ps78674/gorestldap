@@ -282,6 +282,8 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 					e.AddAttribute("hasSubordinates", "FALSE")
 				case "entrydn":
 					e.AddAttribute("entryDN", ldap.AttributeValue(entryName))
+				case "entryuuid":
+					e.AddAttribute("entryUUID", ldap.AttributeValue(user.EntryUUID[0]))
 				default:
 					values := getAttrValues(user, attr)
 					if len(values) > 0 {
@@ -353,6 +355,8 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 					e.AddAttribute("hasSubordinates", "FALSE")
 				case "entrydn":
 					e.AddAttribute("entryDN", ldap.AttributeValue(entryName))
+				case "entryuuid":
+					e.AddAttribute("entryUUID", ldap.AttributeValue(group.EntryUUID[0]))
 				default:
 					values := getAttrValues(group, attr)
 					if len(values) > 0 {
@@ -423,7 +427,14 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}
 
 	res := ldapserver.NewSearchResultDoneResponse(resultCode)
-	responseMessage := ldap.NewLDAPMessageWithProtocolOpAndControls(res, ldap.Controls{nc})
+
+	responseMessage := &ldap.LDAPMessage{}
+	if len(nc.ControlType()) > 0 {
+		responseMessage = ldap.NewLDAPMessageWithProtocolOpAndControls(res, ldap.Controls{nc})
+	} else {
+		responseMessage = ldap.NewLDAPMessageWithProtocolOp(res)
+	}
+
 	w.WriteMessage(responseMessage)
 
 	log.Printf("client [%d]: search result=OK nentries=%d", m.Client.Numero, entriesWritten)
@@ -520,7 +531,6 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	r := m.GetModifyRequest()
 	log.Printf("client [%d]: modify dn=\"%s\"", m.Client.Numero, r.Object())
-	log.Printf("client [%d]: modify attr=%s", m.Client.Numero, r.Object())
 
 	if !strings.HasSuffix(trimSpacesAfterComma(string(r.Object())), baseDN) {
 		diagMessage := fmt.Sprintf("wrong dn \"%s\": must end with basedn \"%s\"", r.Object(), baseDN)

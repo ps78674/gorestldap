@@ -119,7 +119,7 @@ func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	e.AddAttribute("vendorVersion", ldap.AttributeValue(versionString))
 	e.AddAttribute("objectClass", "top", "LDAProotDSE")
 	e.AddAttribute("supportedLDAPVersion", "3")
-	e.AddAttribute("supportedControl", ldap.ControlTypePaging)
+	e.AddAttribute("supportedControl", ldap.AttributeValue(ldap.PagedResultsControlOID))
 	e.AddAttribute("namingContexts", ldap.AttributeValue(baseDN))
 	// e.AddAttribute("supportedSASLMechanisms", "")
 
@@ -146,26 +146,44 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		attrs = append(attrs, string(attr))
 	}
 
+	log.Printf("client [%d]: search base=\"%s\" scope=%d filter=\"%s\"", m.Client.Numero, r.BaseObject(), r.Scope(), r.FilterString())
+	log.Printf("client [%d]: search attr=%s", m.Client.Numero, strings.Join(attrs, " "))
+
 	// get 1.2.840.113556.1.4.319 from requested controls
-	var cp ldap.ControlPaging
-	var cpCriticality ldap.BOOLEAN
+	var controls []string
+	var simplePagedResultsControl ldap.SimplePagedResultsControl
 	if m.Controls() != nil {
 		for _, c := range *m.Controls() {
-			if c.ControlType().String() == ldap.ControlTypePaging {
-				var err error
-				cp, err = ldap.ReadControlPaging(ldap.NewBytes(0, c.ControlValue().Bytes()))
+			switch c.ControlType() {
+			case ldap.PagedResultsControlOID:
+				controls = append(controls, c.ControlType().String())
+				c, err := ldap.ReadPagedResultsControl(c.ControlValue())
 				if err != nil {
 					log.Printf("client [%d]: error decoding pagedResultsControl: %s", m.Client.Numero, err)
 				}
-				cpCriticality = c.Criticality()
-				break
+				simplePagedResultsControl = c
+			default:
+				if c.Criticality().Bool() {
+					controls = append(controls, c.ControlType().String()+"(U,C)")
+				} else {
+					controls = append(controls, c.ControlType().String()+"(U)")
+				}
+				// Handle control criticality
+				// if c.Criticality().Bool() && stopOnUnsupportedCriticalControl {
+				// 	diagMessage := fmt.Sprintf("unsupported critical control %s", c.ControlType().String())
+				// 	res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnavailableCriticalExtension)
+				// 	res.SetDiagnosticMessage(diagMessage)
+				// 	w.Write(res)
+
+				// 	log.Printf("client [%d]: search error: %s", m.Client.Numero, diagMessage)
+				// 	return
+				// }
 			}
 		}
 	}
 
-	log.Printf("client [%d]: search base=\"%s\" scope=%d filter=\"%s\"", m.Client.Numero, r.BaseObject(), r.Scope(), r.FilterString())
-	log.Printf("client [%d]: search attr=%s", m.Client.Numero, strings.Join(attrs, " "))
-	log.Printf("client [%d]: search sizelimit=%d pagesize=%d", m.Client.Numero, r.SizeLimit(), cp.PageSize())
+	log.Printf("client [%d]: search ctrl=%s", m.Client.Numero, strings.Join(controls, " "))
+	log.Printf("client [%d]: search sizelimit=%d pagesize=%d", m.Client.Numero, r.SizeLimit(), simplePagedResultsControl.PageSize())
 
 	// base object must end with basedn (-b/--basedn)
 	if !strings.HasSuffix(trimSpacesAfterComma(string(r.BaseObject())), baseDN) {
@@ -378,19 +396,19 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
-	nc := ldap.Control{}
+	newControls := ldap.Controls{}
 	entriesWritten := 0
 
 	// if paging requested -> return results in pages
-	if cp.PageSize().Int() > 0 {
+	if simplePagedResultsControl.PageSize().Int() > 0 {
 		var cpCookie ldap.OCTETSTRING
-		for entriesWritten = 0; entriesWritten != cp.PageSize().Int() && m.Client.EntriesSent < len(entries); {
+		for entriesWritten = 0; entriesWritten != simplePagedResultsControl.PageSize().Int() && m.Client.EntriesSent < len(entries); {
 			w.Write(entries[m.Client.EntriesSent]) // m.Client.EntriesSent - how many entries already been sent
 			m.Client.EntriesSent++
 			entriesWritten++
 
 			// if all entries are sent - send empty cookie
-			if m.Client.EntriesSent != len(entries) && entriesWritten == cp.PageSize().Int() {
+			if m.Client.EntriesSent != len(entries) && entriesWritten == simplePagedResultsControl.PageSize().Int() {
 				cpCookie = ldap.OCTETSTRING(programName) // use programName instead of random cookie
 			}
 		}
@@ -400,8 +418,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			m.Client.EntriesSent = 0
 		}
 
-		ncp := ldap.NewControlPaging(ldap.INTEGER(len(entries)), cpCookie)
-		b, err := ncp.WriteControlPaging()
+		v, err := ldap.WritePagedResultsControl(ldap.INTEGER(len(entries)), cpCookie)
 		if err != nil {
 			diagMessage := fmt.Sprintf("error encoding pagedResultsControl: %s", err)
 			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultOther)
@@ -412,7 +429,9 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			return
 		}
 
-		nc = ldap.NewControl(ldap.LDAPOID(ldap.ControlTypePaging), cpCriticality, ldap.OCTETSTRING(b.Bytes()))
+		c := ldap.NewControl(ldap.PagedResultsControlOID, ldap.BOOLEAN(true), *v)
+		newControls = append(newControls, c)
+
 	} else {
 		for _, e := range entries {
 			w.Write(e)
@@ -421,20 +440,15 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}
 
 	resultCode := ldapserver.LDAPResultSuccess
-	if (sizeLimitReached && cp.PageSize() == 0) ||
-		((sizeLimitReached && cp.PageSize() > 0) && m.Client.EntriesSent == 0) {
+	if (sizeLimitReached && simplePagedResultsControl.PageSize() == 0) ||
+		((sizeLimitReached && simplePagedResultsControl.PageSize() > 0) && m.Client.EntriesSent == 0) {
 		resultCode = ldapserver.LDAPResultSizeLimitExceeded
 	}
 
 	res := ldapserver.NewSearchResultDoneResponse(resultCode)
+	responseMessage := ldap.NewLDAPMessageWithProtocolOp(res)
 
-	responseMessage := &ldap.LDAPMessage{}
-	if len(nc.ControlType()) > 0 {
-		responseMessage = ldap.NewLDAPMessageWithProtocolOpAndControls(res, ldap.Controls{nc})
-	} else {
-		responseMessage = ldap.NewLDAPMessageWithProtocolOp(res)
-	}
-
+	ldap.SetMessageControls(responseMessage, newControls)
 	w.WriteMessage(responseMessage)
 
 	log.Printf("client [%d]: search result=OK nentries=%d", m.Client.Numero, entriesWritten)

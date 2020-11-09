@@ -22,20 +22,19 @@ const (
 )
 
 var (
-	restURL         string
-	restFile        string
-	baseDN          string
-	bindAddress     string
-	bindPort        string
-	httpPort        string
-	noCallback      bool
-	useTLS          bool
-	serverCert      string
-	serverKey       string
-	logFile         string
-	authToken       string
-	memStoreTimeout time.Duration
-	restData        restObjects
+	restURL       string
+	restFile      string
+	baseDN        string
+	bindAddress   string
+	bindPort      string
+	httpPort      string
+	noCallback    bool
+	useTLS        bool
+	serverCert    string
+	serverKey     string
+	logFile       string
+	authToken     string
+	updateTimeout time.Duration
 )
 
 var (
@@ -46,26 +45,26 @@ var (
 var usage = fmt.Sprintf(`%[1]s: simple LDAP emulator with HTTP REST backend, support bind / search / compare operations
 
 Usage:
-  %[1]s [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (-P <PORT>|--nocallback) (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -t <TOKEN> -m <SECONDS>]
-  %[1]s [-f <FILE> -b <BASEDN> -a <ADDRESS> -p <PORT> (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -m <SECONDS>]
+  %[1]s [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (-P <PORT>|--nocallback) (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -t <TOKEN> -T <SECONDS>]
+  %[1]s [-f <FILE> -b <BASEDN> -a <ADDRESS> -p <PORT> (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -T <SECONDS>]
 
 Options:
-  -u, --url <URL>         rest api url [default: http://localhost/api]
-  -f, --file <FILE>       file with json data
-  -b, --basedn <BASEDN>   server base dn [default: dc=example,dc=org]
-  -a, --addr <ADDRESS>    server address [default: 0.0.0.0]
-  -p, --port <PORT>       server port [default: 389]
-  -P, --httpport <PORT>   http port (for callback) [default: 8080]
-  --nocallback            disable http callback [default: false]
-  --tls                   use tls [default: false]
-  --cert <CERTFILE>       path to certifcate [default: server.crt]
-  --key <KEYFILE>         path to keyfile [default: server.key]
-  -l, --log <FILENAME>    log file path
-  -t, --token <TOKEN>     rest authentication token
-  -m, --memory <SECONDS>  store REST data in memory and update every <SECONDS>
+  -u, --url <URL>          rest api url [default: http://localhost/api]
+  -f, --file <FILE>        file with json data
+  -b, --basedn <BASEDN>    server base dn [default: dc=example,dc=org]
+  -a, --addr <ADDRESS>     server address [default: 0.0.0.0]
+  -p, --port <PORT>        server port [default: 389]
+  -P, --httpport <PORT>    http port (for callback) [default: 8080]
+  --nocallback             disable http callback [default: false]
+  --tls                    use tls [default: false]
+  --cert <CERTFILE>        path to certifcate [default: server.crt]
+  --key <KEYFILE>          path to keyfile [default: server.key]
+  -l, --log <FILENAME>     log file path
+  -t, --token <TOKEN>      rest authentication token
+  -T, --timeout <SECONDS>  update REST data every <SECONDS>
    
-  -h, --help              show this screen
-  -v, --version           show version
+  -h, --help               show this screen
+  -v, --version            show version
 `, programName)
 
 func init() {
@@ -99,14 +98,14 @@ func init() {
 		authToken = envToken
 	}
 
-	if cmdOpts["--memory"] != nil {
-		i, err := strconv.Atoi(cmdOpts["--memory"].(string))
+	if cmdOpts["--timeout"] != nil {
+		i, err := strconv.Atoi(cmdOpts["--timeout"].(string))
 		if err != nil {
-			fmt.Printf("error converting '--cache' to int: %s\n", err)
+			fmt.Printf("error converting '--timeout' to int: %s\n", err)
 			os.Exit(1)
 		}
 
-		memStoreTimeout = time.Duration(i)
+		updateTimeout = time.Duration(i)
 	}
 }
 
@@ -167,11 +166,6 @@ func main() {
 		noCallback = true
 	}
 
-	if memStoreTimeout <= 0 && !noCallback {
-		log.Println("disabling http callback, because in-memory mode not enabled")
-		noCallback = true
-	}
-
 	// http callback server
 	var httpServer fasthttp.Server
 	if !noCallback {
@@ -192,11 +186,11 @@ func main() {
 	}
 
 	// start in memory data updater
-	if memStoreTimeout > 0 {
+	if updateTimeout > 0 {
 		go func() {
 			for {
-				restData.update(mainClientID, "", "")
-				time.Sleep(memStoreTimeout * time.Second)
+				entries.update(mainClientID, callbackData{})
+				time.Sleep(updateTimeout * time.Second)
 			}
 		}()
 
@@ -205,9 +199,12 @@ func main() {
 			for {
 				signal.Notify(chUsr, syscall.SIGUSR1)
 				<-chUsr
-				go restData.update(signalClientID, "", "")
+				go entries.update(signalClientID, callbackData{})
 			}
 		}()
+	} else {
+		log.Printf("update timeout set to 0, wouldn't update data in future\n")
+		entries.update(mainClientID, callbackData{})
 	}
 
 	// When CTRL+C, SIGINT and SIGTERM signal occurs

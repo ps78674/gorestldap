@@ -9,8 +9,9 @@ import (
 )
 
 type callbackData struct {
-	CN   string
-	Type string
+	Type       string
+	ID         int
+	RAWMessage string
 }
 
 const httpClientID int = -3
@@ -52,10 +53,13 @@ func handleCallback(ctx *fasthttp.RequestCtx) {
 	}
 
 	var postData callbackData
-	if err := json.Unmarshal(ctx.PostBody(), &postData); err != nil {
-		strMsg := fmt.Sprintf("error unmarshalling post body: %s\n", ctx.PostBody())
+	postBody := ctx.PostBody()
+	if err := json.Unmarshal(postBody, &postData); err != nil {
+		strMsg := fmt.Sprintf("wrong json %s\n", ctx.PostBody())
 		ctx.Error(strMsg, fasthttp.StatusBadRequest)
+		return
 	}
 
-	go restData.update(httpClientID, postData.CN, postData.Type)
+	postData.RAWMessage = string(postBody)
+	go entries.update(httpClientID, postData)
 }

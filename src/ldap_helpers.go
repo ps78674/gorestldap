@@ -45,8 +45,9 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 			if strings.ToLower(rValue.Type().Field(i).Name) != attrName {
 				continue
 			}
-			for j := 0; j < rValue.Field(i).Len(); j++ {
-				restValue := rValue.Field(i).Index(j).String()
+			switch rValue.Field(i).Interface().(type) {
+			case string:
+				restValue := rValue.Field(i).String()
 				// compare values case insensitive for all attrs except userPassword
 				if attrName != "userpassword" {
 					restValue = strings.ToLower(restValue)
@@ -54,6 +55,13 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 				}
 				if restValue == attrValue {
 					return true, nil
+				}
+			case []string:
+				for j := 0; j < rValue.Field(i).Len(); j++ {
+					restValue := rValue.Field(i).Index(j).String()
+					if restValue == attrValue {
+						return true, nil
+					}
 				}
 			}
 		}
@@ -107,16 +115,27 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 			if strings.ToLower(rValue.Type().Field(i).Name) != attrName {
 				continue
 			}
-			for j, k := 0, 0; j < rValue.Field(i).Len() && k < attrValues.Len(); j, k = j+1, k+1 {
-				// compare values case insensitive for all attrs except userPassword
-				restValue := rValue.Field(i).Index(j).String()
-				attrValue := attrValues.Index(k).Elem().String()
-				if attrName != "userpassword" {
-					restValue = strings.ToLower(restValue)
-					attrValue = strings.ToLower(attrValue)
-				}
-				if strings.HasPrefix(restValue, attrValue) {
-					return true, nil
+
+			for j := 0; j < attrValues.Len(); j++ {
+				attrValue := attrValues.Index(j).Elem().String()
+				switch rValue.Field(i).Interface().(type) {
+				case string:
+					restValue := rValue.Field(i).String()
+					// compare values case insensitive for all attrs except userPassword
+					if attrName != "userpassword" {
+						restValue = strings.ToLower(restValue)
+						attrValue = strings.ToLower(attrValue)
+					}
+					if strings.HasPrefix(restValue, attrValue) {
+						return true, nil
+					}
+				case []string:
+					for k := 0; k < rValue.Field(i).Len(); k++ {
+						restValue := rValue.Field(i).Index(k).String()
+						if strings.HasPrefix(restValue, attrValue) {
+							return true, nil
+						}
+					}
 				}
 			}
 		}
@@ -133,14 +152,23 @@ func doCompare(o interface{}, attrName string, attrValue string) bool {
 
 	rValue := reflect.ValueOf(o)
 	for i := 0; i < rValue.Type().NumField(); i++ {
-		if strings.ToLower(rValue.Type().Field(i).Name) == attrName {
+		if strings.ToLower(rValue.Type().Field(i).Name) != attrName {
+			continue
+		}
+		switch rValue.Field(i).Interface().(type) {
+		case string:
+			// compare values case insensitive for all attrs except userPassword
+			restValue := rValue.Field(i).String()
+			if attrName != "userpassword" {
+				restValue = strings.ToLower(restValue)
+				attrValue = strings.ToLower(attrValue)
+			}
+			if restValue == attrValue {
+				return true
+			}
+		case []string:
 			for j := 0; j < rValue.Field(i).Len(); j++ {
-				// compare values case insensitive for all attrs except userPassword
 				restValue := rValue.Field(i).Index(j).String()
-				if attrName != "userpassword" {
-					restValue = strings.ToLower(restValue)
-					attrValue = strings.ToLower(attrValue)
-				}
 				if restValue == attrValue {
 					return true
 				}
@@ -152,10 +180,16 @@ func doCompare(o interface{}, attrName string, attrValue string) bool {
 }
 
 // create slice of ldap attributes
-func newLDAPAttributeValues(values []string) (out []ldap.AttributeValue) {
-	for _, v := range values {
-		out = append(out, ldap.AttributeValue(v))
+func newLDAPAttributeValues(in interface{}) (out []ldap.AttributeValue) {
+	switch in.(type) {
+	case []string:
+		for _, v := range in.([]string) {
+			out = append(out, ldap.AttributeValue(v))
+		}
+	case string:
+		out = append(out, ldap.AttributeValue(in.(string)))
 	}
+
 	return
 }
 
@@ -186,12 +220,77 @@ func doModify(cn string, pw string) error {
 }
 
 // get struct field values by field name
-func getAttrValues(o interface{}, fieldName string) (ret []string) {
-	rValue := reflect.Indirect(reflect.ValueOf(o).FieldByNameFunc(func(n string) bool { return strings.ToLower(n) == fieldName }))
-
-	if rValue.IsValid() {
-		ret = rValue.Interface().([]string)
+func getAttrValues(o interface{}, fieldName string) (len int, values interface{}) {
+	field, _ := reflect.TypeOf(o).FieldByNameFunc(func(n string) bool { return strings.ToLower(n) == fieldName })
+	if field.Tag.Get("skip") == "yes" {
+		return
 	}
+
+	rValue := reflect.ValueOf(o).FieldByName(field.Name)
+	if rValue.IsValid() {
+		len = rValue.Len()
+		values = rValue.Interface()
+	}
+
+	return
+}
+
+func createSearchResultEntry(o interface{}, attrs ldap.AttributeSelection, entryName string) (e ldap.SearchResultEntry) {
+	// set entry name
+	e.SetObjectName(entryName)
+
+	// // if no specific attributes requested -> add all attributes
+	if len(attrs) == 0 {
+		rValue := reflect.ValueOf(o)
+
+		for i := 0; i < rValue.NumField(); i++ {
+			if rValue.Type().Field(i).Tag.Get("skip") == "yes" {
+				continue
+			}
+
+			if rValue.Type().Field(i).Tag.Get("hidden") == "yes" {
+				continue
+			}
+
+			attr := rValue.Type().Field(i).Tag.Get("json")
+			if attr == "" {
+				attr = rValue.Type().Field(i).Name
+			}
+
+			values := rValue.Field(i).Interface()
+			e.AddAttribute(ldap.AttributeDescription(attr), newLDAPAttributeValues(values)...)
+		}
+	}
+
+	// // if some attributes requested -> add only those attributes
+	if len(attrs) > 0 && attrs[0] != "1.1" {
+		for _, a := range attrs {
+			switch attr := strings.ToLower(string(a)); attr {
+			case "entrydn":
+				e.AddAttribute("entryDN", ldap.AttributeValue(entryName))
+			default:
+				len, values := getAttrValues(o, attr)
+				if len > 0 {
+					e.AddAttribute(ldap.AttributeDescription(a), newLDAPAttributeValues(values)...)
+				}
+			}
+		}
+	}
+
+	return
+}
+
+func getEntryAttrAndName(e string) (attr string, name string) {
+	trimmed := strings.TrimSuffix(e, ","+baseDN)
+
+	// entry == baseDN
+	if trimmed == e {
+		return
+	}
+
+	splitted := strings.SplitN(trimmed, "=", 2)
+	attr = splitted[0]
+	name = splitted[1]
 
 	return
 }

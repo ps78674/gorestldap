@@ -128,7 +128,7 @@ func (data *entriesData) update(cNum int, cb callbackData) {
 
 			found := false
 			for i := range data.Users {
-				if data.Users[i].UIDNumber[0] == newData[0].UIDNumber[0] {
+				if data.Users[i].UIDNumber == newData[0].UIDNumber {
 					data.Users[i] = newData[0]
 					found = true
 					break
@@ -152,7 +152,7 @@ func (data *entriesData) update(cNum int, cb callbackData) {
 
 			found := false
 			for i := range data.Groups {
-				if data.Groups[i].GIDNumber[0] == newData[0].GIDNumber[0] {
+				if data.Groups[i].GIDNumber == newData[0].GIDNumber {
 					data.Groups[i] = newData[0]
 					found = true
 					break

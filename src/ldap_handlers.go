@@ -194,7 +194,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	// base object must be dc=base,dc=dn or cn=<COMMON_NAME>,dc=base,dc=dn
 	// TODO: change diag message
 	baseObject := trimSpacesAfterComma(string(r.BaseObject()))
-	baseObjectAttr, _ := getEntryAttrAndName(baseObject)
+	baseObjectAttr, baseObjectName := getEntryAttrAndName(baseObject)
 	if baseObject != baseDN && baseObjectAttr != "cn" {
 		diagMessage := fmt.Sprintf("wrong base object \"%s\": wrong dn", r.BaseObject())
 		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultInvalidDNSyntax)
@@ -205,8 +205,8 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
-	// search not allowed
-	if !m.Client.ACL.Search {
+	// non admin user allowed to search only over his entry
+	if !m.Client.ACL.Search && (baseObjectAttr != "cn" || (baseObjectAttr == "cn" && baseObjectName != m.Client.ACL.BindEntry)) {
 		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultNoSuchObject)
 		w.Write(res)
 

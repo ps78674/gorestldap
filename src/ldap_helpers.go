@@ -16,6 +16,11 @@ type passwordData struct {
 	UserPassword string `json:"userPassword"`
 }
 
+type attrValues struct {
+	Attr   string
+	Values interface{}
+}
+
 // apply search filter for each object
 func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	switch f.(type) {
@@ -219,6 +224,33 @@ func doModify(cn string, pw string) error {
 	return nil
 }
 
+// get all attributes
+func getAllAttrsAndValues(o interface{}, operationalOnly bool) (ret []attrValues) {
+	rValue := reflect.ValueOf(o)
+	for i := 0; i < rValue.NumField(); i++ {
+		if rValue.Type().Field(i).Tag.Get("skip") == "yes" {
+			continue
+		}
+		if operationalOnly && rValue.Type().Field(i).Tag.Get("hidden") != "yes" {
+			continue
+		}
+		if !operationalOnly && rValue.Type().Field(i).Tag.Get("hidden") == "yes" {
+			continue
+		}
+
+		attr := rValue.Type().Field(i).Tag.Get("json")
+		if attr == "" {
+			attr = rValue.Type().Field(i).Name
+		}
+
+		values := rValue.Field(i).Interface()
+
+		ret = append(ret, attrValues{Attr: attr, Values: values})
+	}
+
+	return ret
+}
+
 // get struct field values by field name
 func getAttrValues(o interface{}, fieldName string) (len int, values interface{}) {
 	field, _ := reflect.TypeOf(o).FieldByNameFunc(func(n string) bool { return strings.ToLower(n) == fieldName })
@@ -241,33 +273,25 @@ func createSearchResultEntry(o interface{}, attrs ldap.AttributeSelection, entry
 
 	// // if no specific attributes requested -> add all attributes
 	if len(attrs) == 0 {
-		rValue := reflect.ValueOf(o)
-
-		for i := 0; i < rValue.NumField(); i++ {
-			if rValue.Type().Field(i).Tag.Get("skip") == "yes" {
-				continue
-			}
-
-			if rValue.Type().Field(i).Tag.Get("hidden") == "yes" {
-				continue
-			}
-
-			attr := rValue.Type().Field(i).Tag.Get("json")
-			if attr == "" {
-				attr = rValue.Type().Field(i).Name
-			}
-
-			values := rValue.Field(i).Interface()
-			e.AddAttribute(ldap.AttributeDescription(attr), newLDAPAttributeValues(values)...)
+		for _, v := range getAllAttrsAndValues(o, false) {
+			e.AddAttribute(ldap.AttributeDescription(v.Attr), newLDAPAttributeValues(v.Values)...)
 		}
 	}
 
-	// // if some attributes requested -> add only those attributes
-	if len(attrs) > 0 && attrs[0] != "1.1" {
+	// if some attributes requested -> add only those attributes
+	if len(attrs) > 0 {
 		for _, a := range attrs {
 			switch attr := strings.ToLower(string(a)); attr {
 			case "entrydn":
 				e.AddAttribute("entryDN", ldap.AttributeValue(entryName))
+			case "+":
+				for _, v := range getAllAttrsAndValues(o, true) {
+					e.AddAttribute(ldap.AttributeDescription(v.Attr), newLDAPAttributeValues(v.Values)...)
+				}
+			case "*":
+				for _, v := range getAllAttrsAndValues(o, false) {
+					e.AddAttribute(ldap.AttributeDescription(v.Attr), newLDAPAttributeValues(v.Values)...)
+				}
 			default:
 				len, values := getAttrValues(o, attr)
 				if len > 0 {

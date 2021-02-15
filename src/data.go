@@ -53,17 +53,17 @@ type group struct {
 }
 
 type entriesData struct {
+	Mutex  sync.Mutex
 	Domain domain
 	Users  []user
 	Groups []group
 }
 
 var entries entriesData
-var dataMutex sync.Mutex
 
 func (data *entriesData) update(cNum int, cb callbackData) {
-	dataMutex.Lock()
-	defer dataMutex.Unlock()
+	data.Mutex.Lock()
+	defer data.Mutex.Unlock()
 
 	data.Domain = domain{
 		ObjectClass: []string{

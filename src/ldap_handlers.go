@@ -413,7 +413,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	compareEntryAttr, compareEntryName := getEntryAttrAndName(compareEntry)
 	if !strings.HasSuffix(compareEntry, baseDN) || (compareEntry != baseDN && compareEntryAttr != "cn" && compareEntryAttr != "uid") {
 		diagMessage := fmt.Sprintf("wrong dn \"%s\"", r.Entry())
-		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidDNSyntax)
+		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultInvalidDNSyntax)
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
@@ -512,7 +512,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	modifyEntryAttr, modifyEntryName := getEntryAttrAndName(modifyEntry)
 	if !strings.HasSuffix(modifyEntry, baseDN) || (modifyEntryAttr != "cn" && modifyEntryAttr != "uid") {
 		diagMessage := fmt.Sprintf("wrong dn \"%s\"", r.Object())
-		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidDNSyntax)
+		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultInvalidDNSyntax)
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
@@ -522,7 +522,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 	// ldap admin can do modify on all entries
 	if m.Client.ACL.BindEntry != modifyEntryName && !m.Client.ACL.Modify {
-		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultInsufficientAccessRights)
+		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultInsufficientAccessRights)
 		w.Write(res)
 
 		log.Printf("client [%d]: modify error: insufficient access", m.Client.Numero)
@@ -538,7 +538,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		log.Printf("client [%d]: modify op=%d", m.Client.Numero, c.Operation())
 		if c.Operation().Int() != ldap.ModifyRequestChangeOperationReplace {
 			diagMessage := fmt.Sprintf("wrong operation %d: only replace (2) is supported", c.Operation().Int())
-			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
+			res := ldapserver.NewModifyResponse(ldapserver.LDAPResultUnwillingToPerform)
 			res.SetDiagnosticMessage(diagMessage)
 			w.Write(res)
 
@@ -550,7 +550,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		log.Printf("client [%d]: modify attr=%s", m.Client.Numero, c.Modification().Type_())
 		if c.Modification().Type_() != "userPassword" {
 			diagMessage := fmt.Sprintf("wrong attribute %s, only userPassword is supported", c.Modification().Type_())
-			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
+			res := ldapserver.NewModifyResponse(ldapserver.LDAPResultUnwillingToPerform)
 			res.SetDiagnosticMessage(diagMessage)
 			w.Write(res)
 
@@ -560,7 +560,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 		if len(c.Modification().Vals()) > 1 {
 			diagMessage := "more than 1 value for userPassword is not supported"
-			res := ldapserver.NewBindResponse(ldapserver.LDAPResultUnwillingToPerform)
+			res := ldapserver.NewModifyResponse(ldapserver.LDAPResultUnwillingToPerform)
 			res.SetDiagnosticMessage(diagMessage)
 			w.Write(res)
 
@@ -569,7 +569,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		}
 
 		if err := doModify(modifyEntryName, string(c.Modification().Vals()[0])); err != nil {
-			res := ldapserver.NewBindResponse(ldapserver.LDAPResultOther)
+			res := ldapserver.NewModifyResponse(ldapserver.LDAPResultOther)
 			res.SetDiagnosticMessage(err.Error())
 			w.Write(res)
 

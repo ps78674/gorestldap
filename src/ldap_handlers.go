@@ -9,6 +9,11 @@ import (
 	ldapserver "github.com/ps78674/ldapserver"
 )
 
+type searchEntry struct {
+	Name string
+	Data interface{}
+}
+
 // handle bind
 func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	r := m.GetBindRequest()
@@ -216,7 +221,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 	sizeCounter := 0
 	sizeLimitReached := false
-	var searchEntries []ldap.SearchResultEntry
+	var searchEntries []searchEntry
 
 	// if baseObject == baseDN AND searchScope == {1, 2} -> add domain entry
 	if baseObject == baseDN && r.Scope() != ldap.SearchRequestScopeOneLevel && r.Scope() != ldap.SearchRequestScopeChildren {
@@ -233,9 +238,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		if r.SizeLimit().Int() > 0 && sizeCounter >= r.SizeLimit().Int() {
 			sizeLimitReached = true
 		} else if ok {
-			// create search result entry
-			e := createSearchResultEntry(entries.Domain, r.Attributes(), baseDN)
-			searchEntries = append(searchEntries, e)
+			searchEntries = append(searchEntries, searchEntry{Name: baseDN, Data: entries.Domain})
 			sizeCounter++
 		}
 	}
@@ -274,9 +277,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			break
 		}
 
-		// create search result entry
-		e := createSearchResultEntry(user, r.Attributes(), entryName)
-		searchEntries = append(searchEntries, e)
+		searchEntries = append(searchEntries, searchEntry{Name: entryName, Data: user})
 		sizeCounter++
 	}
 
@@ -314,9 +315,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			break
 		}
 
-		// create search result entry
-		e := createSearchResultEntry(group, r.Attributes(), entryName)
-		searchEntries = append(searchEntries, e)
+		searchEntries = append(searchEntries, searchEntry{Name: entryName, Data: group})
 		sizeCounter++
 	}
 
@@ -334,8 +333,16 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	// if paging requested -> return results in pages
 	if simplePagedResultsControl.PageSize().Int() > 0 {
 		var cpCookie ldap.OCTETSTRING
-		for entriesWritten = 0; entriesWritten != simplePagedResultsControl.PageSize().Int() && m.Client.EntriesSent < len(searchEntries); {
-			w.Write(searchEntries[m.Client.EntriesSent]) // m.Client.EntriesSent - how many entries already been sent
+
+		endPos := m.Client.EntriesSent + simplePagedResultsControl.PageSize().Int()
+		if endPos > len(searchEntries) {
+			endPos = len(searchEntries)
+		}
+
+		for _, entry := range searchEntries[m.Client.EntriesSent:endPos] {
+			e := createSearchResultEntry(entry.Data, r.Attributes(), entry.Name)
+
+			w.Write(e)
 			m.Client.EntriesSent++
 			entriesWritten++
 
@@ -365,7 +372,8 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		newControls = append(newControls, c)
 
 	} else {
-		for _, e := range searchEntries {
+		for _, entry := range searchEntries {
+			e := createSearchResultEntry(entry.Data, r.Attributes(), entry.Name)
 			w.Write(e)
 			entriesWritten++
 		}

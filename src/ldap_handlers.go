@@ -9,13 +9,11 @@ import (
 	ldapserver "github.com/ps78674/ldapserver"
 )
 
-type searchEntry struct {
-	Name string
-	Data interface{}
-}
-
 // handle bind
 func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
+	entries.Mutex.RLock()
+	defer entries.Mutex.RUnlock()
+
 	r := m.GetBindRequest()
 	log.Printf("client [%d]: bind dn=\"%s\"", m.Client.Numero, r.Name())
 
@@ -114,6 +112,9 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 // search DSE
 func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message) {
+	entries.Mutex.RLock()
+	defer entries.Mutex.RUnlock()
+
 	r := m.GetSearchRequest()
 
 	// attrs := []string{}
@@ -142,6 +143,9 @@ func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 // handle search
 func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
+	entries.Mutex.RLock()
+	defer entries.Mutex.RUnlock()
+
 	// handle stop signal - see main.go
 	stop := false
 	go func() {
@@ -219,11 +223,27 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
-	sizeCounter := 0
+	entriesWritten := 0
 	sizeLimitReached := false
-	var searchEntries []searchEntry
 
-	// if baseObject == baseDN AND searchScope == {1, 2} -> add domain entry
+	// check if more entries is available
+	lastIteration := false
+
+	// how much entries is left
+	left := simplePagedResultsControl.PageSize().Int()
+	if left == 0 {
+		left = 1 + len(entries.Users) + len(entries.Groups)
+	}
+
+	// create client flow control checker
+	searchFlowControl := getSearchControl(m.Client.Numero)
+
+	// if domain processed -> go to users
+	if searchFlowControl.domainDone {
+		goto users
+	}
+
+	// if baseObject == baseDN AND searchScope == {0, 2} -> add domain entry
 	if baseObject == baseDN && r.Scope() != ldap.SearchRequestScopeOneLevel && r.Scope() != ldap.SearchRequestScopeChildren {
 		ok, err := applySearchFilter(entries.Domain, r.Filter())
 		if err != nil {
@@ -235,28 +255,57 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			return
 		}
 
-		if r.SizeLimit().Int() > 0 && sizeCounter >= r.SizeLimit().Int() {
+		if r.SizeLimit().Int() > 0 && searchFlowControl.sent == r.SizeLimit().Int() {
 			sizeLimitReached = true
+			goto end
 		} else if ok {
-			searchEntries = append(searchEntries, searchEntry{Name: baseDN, Data: entries.Domain})
-			sizeCounter++
+			e := createSearchResultEntry(entries.Domain, r.Attributes(), baseDN)
+			w.Write(e)
+
+			searchFlowControl.sent++
+			entriesWritten++
+			left--
 		}
 	}
 
-	for _, user := range entries.Users {
+	// domain processed
+	searchFlowControl.domainDone = true
+
+users:
+	// if all users processed -> go to groups
+	if searchFlowControl.usersDone == true {
+		goto groups
+	}
+
+	for i := searchFlowControl.count; i < len(entries.Users); i++ {
 		if stop {
+			deleteSearchControl(m.Client.Numero)
 			return
 		}
 
-		// if entry not end with baseDN OR (baseObject == entry AND searchScope == 1) -> skip
-		entryName := fmt.Sprintf("cn=%s,%s", user.CN, baseDN)
-		if !strings.HasSuffix(entryName, baseObject) || entryName == baseObject &&
-			(r.Scope() == ldap.SearchRequestScopeOneLevel || r.Scope() == ldap.SearchRequestScopeChildren) {
+		if left == 0 && !lastIteration {
+			lastIteration = true
+		}
+
+		if !lastIteration {
+			searchFlowControl.count++
+		}
+
+		// if entry not end with baseDN OR baseObject == entry AND (searchScope == 1 OR searchScope == 3) -> skip
+		entryName := fmt.Sprintf("cn=%s,%s", entries.Users[i].CN, baseDN)
+		if !strings.HasSuffix(entryName, baseObject) || (entryName == baseObject &&
+			(r.Scope() == ldap.SearchRequestScopeOneLevel || r.Scope() == ldap.SearchRequestScopeChildren)) {
 			continue
 		}
 
+		// if size limit reached -> go to response
+		if r.SizeLimit().Int() > 0 && searchFlowControl.sent == r.SizeLimit().Int() {
+			sizeLimitReached = true
+			goto end
+		}
+
 		// apply search filter for each user
-		ok, err := applySearchFilter(user, r.Filter())
+		ok, err := applySearchFilter(entries.Users[i], r.Filter())
 		if err != nil {
 			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
 			res.SetDiagnosticMessage(err.Error())
@@ -271,30 +320,52 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			continue
 		}
 
-		// if size limit reached -> brake loop
-		if r.SizeLimit().Int() > 0 && sizeCounter >= r.SizeLimit().Int() {
-			sizeLimitReached = true
-			break
+		if lastIteration {
+			goto end
 		}
 
-		searchEntries = append(searchEntries, searchEntry{Name: entryName, Data: user})
-		sizeCounter++
+		e := createSearchResultEntry(entries.Users[i], r.Attributes(), entryName)
+		w.Write(e)
+
+		searchFlowControl.sent++
+		entriesWritten++
+		left--
 	}
 
-	for _, group := range entries.Groups {
+	// users processed
+	searchFlowControl.count = 0
+	searchFlowControl.usersDone = true
+
+groups:
+	for i := searchFlowControl.count; i < len(entries.Groups); i++ {
 		if stop {
+			deleteSearchControl(m.Client.Numero)
 			return
 		}
 
-		// if entry not end with baseDN OR (baseObject == entry AND searchScope == 1) -> skip
-		entryName := fmt.Sprintf("cn=%s,%s", group.CN, baseDN)
+		if left == 0 && !lastIteration {
+			lastIteration = true
+		}
+
+		if !lastIteration {
+			searchFlowControl.count++
+		}
+
+		// if entry not end with baseDN OR baseObject == entry AND (searchScope == 1 OR searchScope == 3) -> skip
+		entryName := fmt.Sprintf("cn=%s,%s", entries.Groups[i].CN, baseDN)
 		if !strings.HasSuffix(entryName, baseObject) || entryName == baseObject &&
 			(r.Scope() == ldap.SearchRequestScopeOneLevel || r.Scope() == ldap.SearchRequestScopeChildren) {
 			continue
 		}
 
+		// if size limit reached -> brake loop
+		if r.SizeLimit().Int() > 0 && searchFlowControl.sent == r.SizeLimit().Int() {
+			sizeLimitReached = true
+			goto end
+		}
+
 		// apply search filter for each group
-		ok, err := applySearchFilter(group, r.Filter())
+		ok, err := applySearchFilter(entries.Groups[i], r.Filter())
 		if err != nil {
 			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
 			res.SetDiagnosticMessage(err.Error())
@@ -309,55 +380,35 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			continue
 		}
 
-		// if size limit reached -> brake loop
-		if r.SizeLimit().Int() > 0 && sizeCounter >= r.SizeLimit().Int() {
-			sizeLimitReached = true
-			break
+		if lastIteration {
+			goto end
 		}
 
-		searchEntries = append(searchEntries, searchEntry{Name: entryName, Data: group})
-		sizeCounter++
+		e := createSearchResultEntry(entries.Groups[i], r.Attributes(), entryName)
+		w.Write(e)
+
+		searchFlowControl.sent++
+		entriesWritten++
+		left--
 	}
 
-	// FIXME: if nothing found -> ldapserver.LDAPResultNoSuchObject ??
-	if len(searchEntries) == 0 {
-		w.Write(ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess))
+	// groups processed
+	searchFlowControl.count = 0
+	searchFlowControl.groupsDone = true
 
-		log.Printf("client [%d]: search result=OK nentries=0", m.Client.Numero)
-		return
-	}
-
+end:
 	newControls := ldap.Controls{}
-	entriesWritten := 0
-
-	// if paging requested -> return results in pages
 	if simplePagedResultsControl.PageSize().Int() > 0 {
-		var cpCookie ldap.OCTETSTRING
+		cpCookie := ldap.OCTETSTRING(programName)
 
-		endPos := m.Client.EntriesSent + simplePagedResultsControl.PageSize().Int()
-		if endPos > len(searchEntries) {
-			endPos = len(searchEntries)
+		// end search
+		if (searchFlowControl.domainDone && searchFlowControl.usersDone && searchFlowControl.groupsDone) || sizeLimitReached {
+			cpCookie = ldap.OCTETSTRING("")
+			deleteSearchControl(m.Client.Numero)
 		}
 
-		for _, entry := range searchEntries[m.Client.EntriesSent:endPos] {
-			e := createSearchResultEntry(entry.Data, r.Attributes(), entry.Name)
-
-			w.Write(e)
-			m.Client.EntriesSent++
-			entriesWritten++
-
-			// if all entries are sent - send empty cookie
-			if m.Client.EntriesSent != len(searchEntries) && entriesWritten == simplePagedResultsControl.PageSize().Int() {
-				cpCookie = ldap.OCTETSTRING(programName) // use programName instead of random cookie
-			}
-		}
-
-		// if all entries are sent - set m.Client.EntriesSent to 0 for next search
-		if m.Client.EntriesSent == len(searchEntries) && len(cpCookie) == 0 {
-			m.Client.EntriesSent = 0
-		}
-
-		v, err := ldap.WritePagedResultsControl(ldap.INTEGER(len(searchEntries)), cpCookie)
+		// encode new paged results control
+		v, err := ldap.WritePagedResultsControl(ldap.INTEGER(0), cpCookie)
 		if err != nil {
 			diagMessage := fmt.Sprintf("error encoding pagedResultsControl: %s", err)
 			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultOther)
@@ -370,18 +421,13 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 		c := ldap.NewControl(ldap.PagedResultsControlOID, ldap.BOOLEAN(true), *v)
 		newControls = append(newControls, c)
-
 	} else {
-		for _, entry := range searchEntries {
-			e := createSearchResultEntry(entry.Data, r.Attributes(), entry.Name)
-			w.Write(e)
-			entriesWritten++
-		}
+		// end search
+		deleteSearchControl(m.Client.Numero)
 	}
 
 	resultCode := ldapserver.LDAPResultSuccess
-	if (sizeLimitReached && simplePagedResultsControl.PageSize() == 0) ||
-		((sizeLimitReached && simplePagedResultsControl.PageSize() > 0) && m.Client.EntriesSent == 0) {
+	if sizeLimitReached {
 		resultCode = ldapserver.LDAPResultSizeLimitExceeded
 	}
 
@@ -396,6 +442,9 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 // handle compare
 func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
+	entries.Mutex.RLock()
+	defer entries.Mutex.RUnlock()
+
 	// handle stop signal - see main.go
 	stop := false
 	go func() {
@@ -493,6 +542,9 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 // handle modify (only userPassword for now)
 func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
+	entries.Mutex.RLock()
+	defer entries.Mutex.RUnlock()
+
 	// handle stop signal - see main.go
 	stop := false
 	go func() {

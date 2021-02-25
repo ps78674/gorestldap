@@ -53,7 +53,7 @@ type group struct {
 }
 
 type entriesData struct {
-	Mutex  sync.Mutex
+	Mutex  sync.RWMutex
 	Domain domain
 	Users  []user
 	Groups []group
@@ -95,73 +95,119 @@ func (data *entriesData) update(cNum int, cb callbackData) {
 	}
 
 	if cNum == mainClientID || cNum == signalClientID {
-		data.Users = getUsersAPIData(cNum, 0)
-		data.Groups = getGroupsAPIData(cNum, 0)
+		log.Printf("client [%d]: getting all users data\n", cNum)
+		ret, err := getAPIData("user", 0)
+		if err != nil {
+			log.Printf("client [%d]: error getting users data: %s\n", cNum, err)
+		} else {
+			data.Users = ret.([]user)
+		}
+
+		log.Printf("client [%d]: getting all groups data\n", cNum)
+		ret, err = getAPIData("group", 0)
+		if err != nil {
+			log.Printf("client [%d]: error getting groups data: %s\n", cNum, err)
+		} else {
+			data.Groups = ret.([]group)
+		}
+
+		return
 	}
 
 	if cNum == httpClientID {
-		// callback data must have type or id or both
-		if (cb.Type == "" && cb.ID == 0) || (cb.Type != "" && cb.Type != "user" && cb.Type != "group") {
+		switch cb.Type {
+		case "user":
+			// type - user and not id specified == update all users
+			if cb.ID == 0 {
+				log.Printf("client [%d]: getting all users data\n", cNum)
+				ret, err := getAPIData("user", 0)
+				if err != nil {
+					log.Printf("client [%d]: error getting users data: %s\n", cNum, err)
+				} else {
+					data.Users = ret.([]user)
+				}
+
+				return
+			}
+
+			// update / append user by id
+			if cb.ID > 0 {
+				log.Printf("client [%d]: getting user data for id %d\n", cNum, cb.ID)
+				ret, err := getAPIData("user", cb.ID)
+				if err != nil {
+					log.Printf("client [%d]: error getting user data: %s\n", cNum, err)
+					return
+				}
+
+				newData := ret.([]user)
+
+				// id must be unique in API, if multiple objects returned -> stop
+				// if len(newData) == 0 -> none returned), stop
+				if len(newData) != 1 {
+					log.Printf("client [%d]: returned slice length > 1\n", cNum)
+					return
+				}
+
+				found := false
+				for i := range data.Users {
+					if data.Users[i].UIDNumber == newData[0].UIDNumber {
+						data.Users[i] = newData[0]
+						found = true
+						break
+					}
+				}
+
+				if !found {
+					data.Users = append(data.Users, newData[0])
+				}
+			}
+		case "group":
+			// type - group and not id specified -> update all groupa
+			if cb.ID == 0 {
+				log.Printf("client [%d]: getting all groups data\n", cNum)
+				ret, err := getAPIData("group", 0)
+				if err != nil {
+					log.Printf("client [%d]: error getting groups data: %s\n", cNum, err)
+				} else {
+					data.Groups = ret.([]group)
+				}
+
+				return
+			}
+
+			// update / append group by id
+			if cb.ID > 0 {
+				log.Printf("client [%d]: getting group data for id %d\n", cNum, cb.ID)
+				ret, err := getAPIData("group", cb.ID)
+				if err != nil {
+					log.Printf("client [%d]: error getting group data: %s\n", cNum, err)
+				}
+
+				newData := ret.([]group)
+
+				// id must be unique in API, if multiple objects returned -> stop
+				// if len(newData) == 0 -> none returned), stop
+				if len(newData) != 1 {
+					log.Printf("client [%d]: returned slice length > 1\n", cNum)
+					return
+				}
+
+				found := false
+				for i := range data.Groups {
+					if data.Groups[i].GIDNumber == newData[0].GIDNumber {
+						data.Groups[i] = newData[0]
+						found = true
+						break
+					}
+				}
+
+				if !found {
+					data.Groups = append(data.Groups, newData[0])
+				}
+			}
+		default:
 			log.Printf("client [%d]: got wrong callback data %s", httpClientID, cb.RAWMessage)
 			return
-		}
-
-		// type - user and not id specified == update all users
-		if cb.Type == "user" && cb.ID == 0 {
-			data.Users = getUsersAPIData(cNum, 0)
-		}
-
-		// type - group and not id specified -> update all groupa
-		if cb.Type == "group" && cb.ID == 0 {
-			data.Groups = getGroupsAPIData(cNum, 0)
-		}
-
-		// update / append user by id
-		if (cb.Type == "" || cb.Type == "user") && cb.ID > 0 {
-			newData := getUsersAPIData(cNum, cb.ID)
-
-			// id must be unique in API, if multiple objects returned -> stop
-			// if len(newData) == 0 -> none returned), stop
-			if len(newData) != 1 {
-				return
-			}
-
-			found := false
-			for i := range data.Users {
-				if data.Users[i].UIDNumber == newData[0].UIDNumber {
-					data.Users[i] = newData[0]
-					found = true
-					break
-				}
-			}
-
-			if !found {
-				data.Users = append(data.Users, newData[0])
-			}
-		}
-
-		// update / append group by id
-		if (cb.Type == "" || cb.Type == "group") && cb.ID > 0 {
-			newData := getGroupsAPIData(cNum, cb.ID)
-
-			// id must be unique in API, if multiple objects returned -> stop
-			// if len(newData) == 0 -> none returned), stop
-			if len(newData) != 1 {
-				return
-			}
-
-			found := false
-			for i := range data.Groups {
-				if data.Groups[i].GIDNumber == newData[0].GIDNumber {
-					data.Groups[i] = newData[0]
-					found = true
-					break
-				}
-			}
-
-			if !found {
-				data.Groups = append(data.Groups, newData[0])
-			}
 		}
 	}
 }
@@ -191,61 +237,47 @@ func doRequest(reqURL string, body []byte) ([]byte, error) {
 	return resp.Body(), nil
 }
 
-// get users data from rest
-func getUsersAPIData(cNum int, userID int) (userData []user) {
-	reqURL := fmt.Sprintf("%s%s", restURL, urlLDAPUsers)
-	if userID > 0 {
-		reqURL = fmt.Sprintf("%s?uidNumber=%d", reqURL, userID)
-	}
+// get data from API
+func getAPIData(reqType string, id int) (ret interface{}, err error) {
+	switch reqType {
+	case "user":
+		reqURL := fmt.Sprintf("%s%s", restURL, urlLDAPUsers)
+		if id > 0 {
+			reqURL = fmt.Sprintf("%s?uidNumber=%d", reqURL, id)
+		}
 
-	log.Printf("client [%d]: getting users data, url '%s'", cNum, reqURL)
+		respData, e := doRequest(reqURL, []byte{})
+		if e != nil {
+			err = fmt.Errorf("error getting response: %s", e)
+			return
+		}
 
-	respData, err := doRequest(reqURL, []byte{})
-	if err != nil {
-		log.Printf("client [%d]: error getting response: %s\n", cNum, err)
-	}
+		data := []user{}
+		if e := json.Unmarshal(respData, &data); e != nil {
+			err = fmt.Errorf("error unmarshalling data: %s", e)
+			// print raw response ??
+			return
+		}
+		ret = data
+	case "group":
+		reqURL := fmt.Sprintf("%s%s", restURL, urlLDAPGroups)
+		if id > 0 {
+			reqURL = fmt.Sprintf("%s?gidNumber=%d", reqURL, id)
+		}
 
-	if err := json.Unmarshal(respData, &userData); err != nil {
-		log.Printf("client [%d]: error unmarshalling users data: %s\n", cNum, err)
-		// if len(respData) > 0 {
-		// 	log.Printf("client [%d]: raw http response data: %s\n", cNum, respData)
-		// }
-		return
-	}
+		respData, e := doRequest(reqURL, []byte{})
+		if e != nil {
+			err = fmt.Errorf("error getting response: %s", e)
+			return
+		}
 
-	if len(userData) == 0 {
-		log.Printf("client [%d]: error getting users data from API: returned nil\n", cNum)
-		return
-	}
-
-	return
-}
-
-// get groups data from rest
-func getGroupsAPIData(cNum int, groupID int) (groupData []group) {
-	reqURL := fmt.Sprintf("%s%s", restURL, urlLDAPGroups)
-	if groupID > 0 {
-		reqURL = fmt.Sprintf("%s?gidNumber=%d", reqURL, groupID)
-	}
-
-	log.Printf("client [%d]: getting groups data, url '%s'", cNum, reqURL)
-
-	respData, err := doRequest(reqURL, []byte{})
-	if err != nil {
-		log.Printf("client [%d]: error getting http response: %s\n", cNum, err)
-	}
-
-	if err := json.Unmarshal(respData, &groupData); err != nil {
-		log.Printf("client [%d]: error unmarshalling groups data: %s\n", cNum, err)
-		// if len(respData) > 0 {
-		// 	log.Printf("client [%d]: raw http response data: %s\n", cNum, respData)
-		// }
-		return
-	}
-
-	if len(groupData) == 0 {
-		log.Printf("client [%d]: error getting groups data from API: returned nil\n", cNum)
-		return
+		data := []group{}
+		if e := json.Unmarshal(respData, &data); e != nil {
+			err = fmt.Errorf("error unmarshalling data: %s", e)
+			// print raw response ??
+			return
+		}
+		ret = data
 	}
 
 	return

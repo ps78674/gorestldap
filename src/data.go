@@ -38,7 +38,6 @@ type user struct {
 	LoginShell      string   `json:"loginShell"`
 	MemberOf        []string `json:"memberOf"`
 	SSHPublicKey    []string `json:"sshPublicKey"`
-	IPHostNumber    []string `json:"ipHostNumber"`
 }
 
 type group struct {

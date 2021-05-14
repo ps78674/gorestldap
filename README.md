@@ -62,10 +62,6 @@ Example: `curl localhost:8080/callback -X POST -H "Content-Type: application/jso
             "group1",
             "group2"
         ],
-        "ipHostNumber": [
-            "123.456.789.012",
-            "345.678.901.234"
-        ],
         "objectClass": [
             "top",
             "posixAccount",
@@ -118,8 +114,8 @@ ssl off
 filter passwd (objectClass=posixAccount)
 filter shadow (objectClass=shadowAccount)
 filter group (objectClass=posixGroup)
-#filter passwd (&(objectClass=posixAccount)(ipHostNumber=SERVER_IP_ADDRESS))
-#filter shadow (&(objectClass=posixAccount)(ipHostNumber=SERVER_IP_ADDRESS))
+#filter passwd (&(objectClass=posixAccount)(memberof=group1))
+#filter shadow (&(objectClass=posixAccount)(memberof=group1))
 ```
 
 ### **Sample ldapsearch output**
@@ -145,8 +141,6 @@ loginShell: /bin/bash
 memberOf: group1
 memberOf: group2
 sshPublicKey: ssh-rsa RAW_PUB_KEY hostname.local
-ipHostNumber: 123.456.789.012 // server ip address associated with user
-ipHostNumber: 345.678.901.234
 ```
 
 ```

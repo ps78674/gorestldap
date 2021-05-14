@@ -15,7 +15,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	defer entries.Mutex.RUnlock()
 
 	r := m.GetBindRequest()
-	log.Printf("client [%d]: bind dn=\"%s\"", m.Client.Numero, r.Name())
+	log.Printf("client [%d]: bind dn=\"%s\"", m.Client.Numero(), r.Name())
 
 	// only simple authentiacion supported
 	if r.AuthenticationChoice() != "simple" {
@@ -24,7 +24,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
-		log.Printf("client [%d]: bind error: %s", m.Client.Numero, diagMessage)
+		log.Printf("client [%d]: bind error: %s", m.Client.Numero(), diagMessage)
 		return
 	}
 
@@ -38,7 +38,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
-		log.Printf("client [%d]: bind error: %s", m.Client.Numero, diagMessage)
+		log.Printf("client [%d]: bind error: %s", m.Client.Numero(), diagMessage)
 		return
 	}
 
@@ -58,7 +58,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
-		log.Printf("client [%d]: bind error: %s", m.Client.Numero, diagMessage)
+		log.Printf("client [%d]: bind error: %s", m.Client.Numero(), diagMessage)
 		return
 	}
 
@@ -69,7 +69,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
-		log.Printf("client [%d]: bind error: %s", m.Client.Numero, diagMessage)
+		log.Printf("client [%d]: bind error: %s", m.Client.Numero(), diagMessage)
 		return
 	}
 
@@ -85,7 +85,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
-		log.Printf("client [%d]: bind error: %s", m.Client.Numero, diagMessage)
+		log.Printf("client [%d]: bind error: %s", m.Client.Numero(), diagMessage)
 		return
 	}
 
@@ -107,7 +107,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	res := ldapserver.NewBindResponse(ldapserver.LDAPResultSuccess)
 	w.Write(res)
 
-	log.Printf("client [%d]: bind result=OK", m.Client.Numero)
+	log.Printf("client [%d]: bind result=OK", m.Client.Numero())
 }
 
 // search DSE
@@ -122,10 +122,10 @@ func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	// 	attrs = append(attrs, string(attr))
 	// }
 
-	log.Printf("client [%d]: search base=\"%s\" scope=%d filter=\"%s\"", m.Client.Numero, r.BaseObject(), r.Scope(), r.FilterString())
+	log.Printf("client [%d]: search base=\"%s\" scope=%d filter=\"%s\"", m.Client.Numero(), r.BaseObject(), r.Scope(), r.FilterString())
 
 	// TODO: handle search attributes??
-	// log.Printf("client [%d]: search attr=%s", m.Client.Numero, strings.Join(attrs, " "))
+	// log.Printf("client [%d]: search attr=%s", m.Client.Numero(), strings.Join(attrs, " "))
 
 	e := ldapserver.NewSearchResultEntry("")
 	e.AddAttribute("vendorVersion", ldap.AttributeValue(versionString))
@@ -138,21 +138,13 @@ func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	w.Write(e)
 	w.Write(ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess))
 
-	log.Printf("client [%d]: search result=OK nentries=1", m.Client.Numero)
+	log.Printf("client [%d]: search result=OK nentries=1", m.Client.Numero())
 }
 
 // handle search
 func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	entries.Mutex.RLock()
 	defer entries.Mutex.RUnlock()
-
-	// handle stop signal - see main.go
-	stop := false
-	go func() {
-		<-m.Done
-		log.Printf("client [%d]: leaving handleSearch...", m.Client.Numero)
-		stop = true
-	}()
 
 	r := m.GetSearchRequest()
 
@@ -161,8 +153,8 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		attrs = append(attrs, string(attr))
 	}
 
-	log.Printf("client [%d]: search base=\"%s\" scope=%d filter=\"%s\"", m.Client.Numero, r.BaseObject(), r.Scope(), r.FilterString())
-	log.Printf("client [%d]: search attr=%s", m.Client.Numero, strings.Join(attrs, " "))
+	log.Printf("client [%d]: search base=\"%s\" scope=%d filter=\"%s\"", m.Client.Numero(), r.BaseObject(), r.Scope(), r.FilterString())
+	log.Printf("client [%d]: search attr=%s", m.Client.Numero(), strings.Join(attrs, " "))
 
 	// get 1.2.840.113556.1.4.319 from requested controls
 	var controls []string
@@ -174,7 +166,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 				controls = append(controls, c.ControlType().String())
 				c, err := ldap.ReadPagedResultsControl(c.ControlValue())
 				if err != nil {
-					log.Printf("client [%d]: error decoding pagedResultsControl: %s", m.Client.Numero, err)
+					log.Printf("client [%d]: error decoding pagedResultsControl: %s", m.Client.Numero(), err)
 				}
 				simplePagedResultsControl = c
 			default:
@@ -183,22 +175,31 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 				} else {
 					controls = append(controls, c.ControlType().String()+"(U)")
 				}
-				// Handle control criticality
+				// TODO: Handle control criticality
 				// if c.Criticality().Bool() && stopOnUnsupportedCriticalControl {
 				// 	diagMessage := fmt.Sprintf("unsupported critical control %s", c.ControlType().String())
 				// 	res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnavailableCriticalExtension)
 				// 	res.SetDiagnosticMessage(diagMessage)
 				// 	w.Write(res)
 
-				// 	log.Printf("client [%d]: search error: %s", m.Client.Numero, diagMessage)
+				// 	log.Printf("client [%d]: search error: %s", m.Client.Numero(), diagMessage)
 				// 	return
 				// }
 			}
 		}
 	}
 
-	log.Printf("client [%d]: search ctrl=%s", m.Client.Numero, strings.Join(controls, " "))
-	log.Printf("client [%d]: search sizelimit=%d pagesize=%d", m.Client.Numero, r.SizeLimit(), simplePagedResultsControl.PageSize())
+	log.Printf("client [%d]: search ctrl=%s", m.Client.Numero(), strings.Join(controls, " "))
+	log.Printf("client [%d]: search sizelimit=%d pagesize=%d", m.Client.Numero(), r.SizeLimit(), simplePagedResultsControl.PageSize())
+
+	// handle stop signal
+	select {
+	case <-m.Done:
+		log.Printf("client [%d]: leaving handleSearch...", m.Client.Numero())
+		deleteSearchControl(m.Client.Numero())
+		return
+	default:
+	}
 
 	// base object must be dc=base,dc=dn or cn=<COMMON_NAME>,dc=base,dc=dn
 	// TODO: change diag message
@@ -210,16 +211,16 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
-		log.Printf("client [%d]: search error: %s", m.Client.Numero, diagMessage)
+		log.Printf("client [%d]: search error: %s", m.Client.Numero(), diagMessage)
 		return
 	}
 
 	// non admin user allowed to search only over his entry
-	if !m.Client.ACL.Search && (baseObjectAttr != "cn" || (baseObjectAttr == "cn" && baseObjectName != m.Client.ACL.BindEntry)) {
+	if !m.Client.ACL().Search && (baseObjectAttr != "cn" || (baseObjectAttr == "cn" && baseObjectName != m.Client.ACL().BindEntry)) {
 		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultNoSuchObject)
 		w.Write(res)
 
-		log.Printf("client [%d]: search error: insufficient access", m.Client.Numero)
+		log.Printf("client [%d]: search error: insufficient access", m.Client.Numero())
 		return
 	}
 
@@ -236,7 +237,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}
 
 	// create client flow control checker
-	searchFlowControl := getSearchControl(m.Client.Numero)
+	searchFlowControl := getSearchControl(m.Client.Numero())
 
 	// if domain processed -> go to users
 	if searchFlowControl.domainDone {
@@ -251,7 +252,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			res.SetDiagnosticMessage(err.Error())
 			w.Write(res)
 
-			log.Printf("client [%d]: search error: %s", m.Client.Numero, err)
+			log.Printf("client [%d]: search error: %s", m.Client.Numero(), err)
 			return
 		}
 
@@ -273,14 +274,18 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 users:
 	// if all users processed -> go to groups
-	if searchFlowControl.usersDone == true {
+	if searchFlowControl.usersDone {
 		goto groups
 	}
 
 	for i := searchFlowControl.count; i < len(entries.Users); i++ {
-		if stop {
-			deleteSearchControl(m.Client.Numero)
+		// handle stop signal
+		select {
+		case <-m.Done:
+			log.Printf("client [%d]: leaving handleSearch...", m.Client.Numero())
+			deleteSearchControl(m.Client.Numero())
 			return
+		default:
 		}
 
 		if left == 0 && !lastIteration {
@@ -311,7 +316,7 @@ users:
 			res.SetDiagnosticMessage(err.Error())
 			w.Write(res)
 
-			log.Printf("client [%d]: search error: %s", m.Client.Numero, err)
+			log.Printf("client [%d]: search error: %s", m.Client.Numero(), err)
 			return
 		}
 
@@ -338,9 +343,13 @@ users:
 
 groups:
 	for i := searchFlowControl.count; i < len(entries.Groups); i++ {
-		if stop {
-			deleteSearchControl(m.Client.Numero)
+		// handle stop signal
+		select {
+		case <-m.Done:
+			log.Printf("client [%d]: leaving handleSearch...", m.Client.Numero())
+			deleteSearchControl(m.Client.Numero())
 			return
+		default:
 		}
 
 		if left == 0 && !lastIteration {
@@ -371,7 +380,7 @@ groups:
 			res.SetDiagnosticMessage(err.Error())
 			w.Write(res)
 
-			log.Printf("client [%d]: search error: %s", m.Client.Numero, err)
+			log.Printf("client [%d]: search error: %s", m.Client.Numero(), err)
 			return
 		}
 
@@ -404,7 +413,7 @@ end:
 		// end search
 		if (searchFlowControl.domainDone && searchFlowControl.usersDone && searchFlowControl.groupsDone) || sizeLimitReached {
 			cpCookie = ldap.OCTETSTRING("")
-			deleteSearchControl(m.Client.Numero)
+			deleteSearchControl(m.Client.Numero())
 		}
 
 		// encode new paged results control
@@ -415,7 +424,7 @@ end:
 			res.SetDiagnosticMessage(diagMessage)
 			w.Write(res)
 
-			log.Printf("client [%d]: search error: %s", m.Client.Numero, diagMessage)
+			log.Printf("client [%d]: search error: %s", m.Client.Numero(), diagMessage)
 			return
 		}
 
@@ -423,7 +432,7 @@ end:
 		newControls = append(newControls, c)
 	} else {
 		// end search
-		deleteSearchControl(m.Client.Numero)
+		deleteSearchControl(m.Client.Numero())
 	}
 
 	resultCode := ldapserver.LDAPResultSuccess
@@ -437,7 +446,7 @@ end:
 	ldap.SetMessageControls(responseMessage, newControls)
 	w.WriteMessage(responseMessage)
 
-	log.Printf("client [%d]: search result=OK nentries=%d", m.Client.Numero, entriesWritten)
+	log.Printf("client [%d]: search result=OK nentries=%d", m.Client.Numero(), entriesWritten)
 }
 
 // handle compare
@@ -445,16 +454,8 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	entries.Mutex.RLock()
 	defer entries.Mutex.RUnlock()
 
-	// handle stop signal - see main.go
-	stop := false
-	go func() {
-		<-m.Done
-		log.Printf("client [%d]: leaving handleCompare...", m.Client.Numero)
-		stop = true
-	}()
-
 	r := m.GetCompareRequest()
-	log.Printf("client [%d]: compare dn=\"%s\" attr=\"%s\"", m.Client.Numero, r.Entry(), r.Ava().AttributeDesc())
+	log.Printf("client [%d]: compare dn=\"%s\" attr=\"%s\"", m.Client.Numero(), r.Entry(), r.Ava().AttributeDesc())
 
 	// entry must be equal to baseDN or look like cn=<COMMON_NAME>,dc=base,dc=dn
 	// TODO: change diag message
@@ -466,7 +467,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
-		log.Printf("client [%d]: compare error: %s", m.Client.Numero, diagMessage)
+		log.Printf("client [%d]: compare error: %s", m.Client.Numero(), diagMessage)
 		return
 	}
 
@@ -477,16 +478,16 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
-		log.Printf("client [%d]: compare error: %s", m.Client.Numero, diagMessage)
+		log.Printf("client [%d]: compare error: %s", m.Client.Numero(), diagMessage)
 		return
 	}
 
 	// requested compare on domain and user not ldap admin OR compare entry != bind entry and user not ldap admin
-	if (compareEntry == baseDN && !m.Client.ACL.Compare) || (m.Client.ACL.BindEntry != compareEntryName && !m.Client.ACL.Compare) {
+	if (compareEntry == baseDN && !m.Client.ACL().Compare) || (m.Client.ACL().BindEntry != compareEntryName && !m.Client.ACL().Compare) {
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultInsufficientAccessRights)
 		w.Write(res)
 
-		log.Printf("client [%d]: compare error: insufficient access", m.Client.Numero)
+		log.Printf("client [%d]: compare error: insufficient access", m.Client.Numero())
 		return
 	}
 
@@ -494,14 +495,18 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareTrue)
 		w.Write(res)
 
-		log.Printf("client [%d]: compare result=TRUE", m.Client.Numero)
+		log.Printf("client [%d]: compare result=TRUE", m.Client.Numero())
 		return
 
 	}
 
 	for _, user := range entries.Users {
-		if stop {
+		// handle stop signal
+		select {
+		case <-m.Done:
+			log.Printf("client [%d]: leaving handleCompare...", m.Client.Numero())
 			return
+		default:
 		}
 
 		if user.CN != compareEntryName {
@@ -512,13 +517,17 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareTrue)
 			w.Write(res)
 
-			log.Printf("client [%d]: compare result=TRUE", m.Client.Numero)
+			log.Printf("client [%d]: compare result=TRUE", m.Client.Numero())
 			return
 		}
 	}
 	for _, group := range entries.Groups {
-		if stop {
+		// handle stop signal
+		select {
+		case <-m.Done:
+			log.Printf("client [%d]: leaving handleCompare...", m.Client.Numero())
 			return
+		default:
 		}
 
 		if group.CN != compareEntryName {
@@ -529,7 +538,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareTrue)
 			w.Write(res)
 
-			log.Printf("client [%d]: compare result=TRUE", m.Client.Numero)
+			log.Printf("client [%d]: compare result=TRUE", m.Client.Numero())
 			return
 		}
 	}
@@ -537,7 +546,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareFalse)
 	w.Write(res)
 
-	log.Printf("client [%d]: compare result=FALSE", m.Client.Numero)
+	log.Printf("client [%d]: compare result=FALSE", m.Client.Numero())
 }
 
 // handle modify (only userPassword for now)
@@ -545,19 +554,9 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	entries.Mutex.RLock()
 	defer entries.Mutex.RUnlock()
 
-	// handle stop signal - see main.go
-	stop := false
-	go func() {
-		<-m.Done
-		log.Printf("client [%d]: leaving handleModify...", m.Client.Numero)
-		stop = true
-	}()
-
 	r := m.GetModifyRequest()
-	log.Printf("client [%d]: modify dn=\"%s\"", m.Client.Numero, r.Object())
+	log.Printf("client [%d]: modify dn=\"%s\"", m.Client.Numero(), r.Object())
 
-	// TODO: check if string(r.Object()) == baseDN
-	//
 	// entry must be equal to baseDN or look like cn=<COMMON_NAME>,dc=base,dc=dn
 	// TODO: change diag message
 	modifyEntry := trimSpacesAfterComma(string(r.Object()))
@@ -568,45 +567,49 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
-		log.Printf("client [%d]: modify error: %s", m.Client.Numero, diagMessage)
+		log.Printf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
 		return
 	}
 
 	// ldap admin can do modify on all entries
-	if m.Client.ACL.BindEntry != modifyEntryName && !m.Client.ACL.Modify {
+	if m.Client.ACL().BindEntry != modifyEntryName && !m.Client.ACL().Modify {
 		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultInsufficientAccessRights)
 		w.Write(res)
 
-		log.Printf("client [%d]: modify error: insufficient access", m.Client.Numero)
+		log.Printf("client [%d]: modify error: insufficient access", m.Client.Numero())
 		return
 	}
 
 	for _, c := range r.Changes() {
-		if stop {
+		// handle stop signal
+		select {
+		case <-m.Done:
+			log.Printf("client [%d]: leaving handleModify...", m.Client.Numero())
 			return
+		default:
 		}
 
 		// check operation type
-		log.Printf("client [%d]: modify op=%d", m.Client.Numero, c.Operation())
+		log.Printf("client [%d]: modify op=%d", m.Client.Numero(), c.Operation())
 		if c.Operation().Int() != ldap.ModifyRequestChangeOperationReplace {
 			diagMessage := fmt.Sprintf("wrong operation %d: only replace (2) is supported", c.Operation().Int())
 			res := ldapserver.NewModifyResponse(ldapserver.LDAPResultUnwillingToPerform)
 			res.SetDiagnosticMessage(diagMessage)
 			w.Write(res)
 
-			log.Printf("client [%d]: modify error: %s", m.Client.Numero, diagMessage)
+			log.Printf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
 			return
 		}
 
 		// check attribute name
-		log.Printf("client [%d]: modify attr=%s", m.Client.Numero, c.Modification().Type_())
+		log.Printf("client [%d]: modify attr=%s", m.Client.Numero(), c.Modification().Type_())
 		if c.Modification().Type_() != "userPassword" {
 			diagMessage := fmt.Sprintf("wrong attribute %s, only userPassword is supported", c.Modification().Type_())
 			res := ldapserver.NewModifyResponse(ldapserver.LDAPResultUnwillingToPerform)
 			res.SetDiagnosticMessage(diagMessage)
 			w.Write(res)
 
-			log.Printf("client [%d]: modify error: %s", m.Client.Numero, diagMessage)
+			log.Printf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
 			return
 		}
 
@@ -616,7 +619,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			res.SetDiagnosticMessage(diagMessage)
 			w.Write(res)
 
-			log.Printf("client [%d]: modify error: %s", m.Client.Numero, diagMessage)
+			log.Printf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
 			return
 		}
 
@@ -625,7 +628,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			res.SetDiagnosticMessage(err.Error())
 			w.Write(res)
 
-			log.Printf("client [%d]: modify error: %s", m.Client.Numero, err)
+			log.Printf("client [%d]: modify error: %s", m.Client.Numero(), err)
 			return
 		}
 	}
@@ -633,5 +636,5 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	res := ldapserver.NewModifyResponse(ldapserver.LDAPResultSuccess)
 	w.Write(res)
 
-	log.Printf("client [%d]: modify result=OK", m.Client.Numero)
+	log.Printf("client [%d]: modify result=OK", m.Client.Numero())
 }

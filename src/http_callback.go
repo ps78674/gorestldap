@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 
 	"github.com/valyala/fasthttp"
@@ -61,5 +62,10 @@ func handleCallback(ctx *fasthttp.RequestCtx) {
 	}
 
 	postData.RAWMessage = string(postBody)
-	go entries.update(httpClientID, postData)
+	go func() {
+		log.Printf("client [%d]: updating entries data\n", httpClientID)
+		if err := entries.update(postData); err != nil {
+			log.Printf("client [%d]: error updating entries data: %s\n", httpClientID, err)
+		}
+	}()
 }

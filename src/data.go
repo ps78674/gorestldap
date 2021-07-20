@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"sync"
 
 	"github.com/valyala/fasthttp"
@@ -60,7 +59,7 @@ type entriesData struct {
 
 var entries entriesData
 
-func (data *entriesData) update(cNum int, cb callbackData) {
+func (data *entriesData) update(cb callbackData) error {
 	data.Mutex.Lock()
 	defer data.Mutex.Unlock()
 
@@ -73,78 +72,66 @@ func (data *entriesData) update(cNum int, cb callbackData) {
 	}
 
 	if len(restFile) > 0 {
-		log.Printf("client [%d]: getting data from file '%s'", cNum, restFile)
-
 		fileContents, err := ioutil.ReadFile(restFile)
 		if err != nil {
-			log.Printf("client [%d]: error opening file: '%s'", cNum, err)
-			return
+			return fmt.Errorf("error opening file: %s", err)
 		}
 
 		fileData := entriesData{}
 		if err := json.Unmarshal(fileContents, &fileData); err != nil {
-			log.Printf("client [%d]: error unmarshalling file data: %s\n", cNum, err)
-			return
+			return fmt.Errorf("error unmarshalling file data: %s", err)
 		}
 
 		data.Users = fileData.Users
 		data.Groups = fileData.Groups
-
-		return
 	}
 
-	if cNum == mainClientID || cNum == signalClientID {
-		log.Printf("client [%d]: getting all users data\n", cNum)
+	if len(restFile) == 0 && len(cb.Type) == 0 {
 		ret, err := getAPIData("user", 0)
 		if err != nil {
-			log.Printf("client [%d]: error getting users data: %s\n", cNum, err)
+			return fmt.Errorf("error getting users data: %s", err)
 		} else {
 			data.Users = ret.([]user)
 		}
 
-		log.Printf("client [%d]: getting all groups data\n", cNum)
 		ret, err = getAPIData("group", 0)
 		if err != nil {
-			log.Printf("client [%d]: error getting groups data: %s\n", cNum, err)
+			return fmt.Errorf("error getting groups data: %s", err)
 		} else {
 			data.Groups = ret.([]group)
 		}
-
-		return
 	}
 
-	if cNum == httpClientID {
+	if len(restFile) == 0 && len(cb.Type) > 0 {
 		switch cb.Type {
 		case "user":
 			// type - user and not id specified == update all users
 			if cb.ID == 0 {
-				log.Printf("client [%d]: getting all users data\n", cNum)
 				ret, err := getAPIData("user", 0)
 				if err != nil {
-					log.Printf("client [%d]: error getting users data: %s\n", cNum, err)
+					return fmt.Errorf("error getting users data: %s", err)
 				} else {
 					data.Users = ret.([]user)
 				}
-
-				return
 			}
 
 			// update / append user by id
 			if cb.ID > 0 {
-				log.Printf("client [%d]: getting user data for id %d\n", cNum, cb.ID)
 				ret, err := getAPIData("user", cb.ID)
 				if err != nil {
-					log.Printf("client [%d]: error getting user data: %s\n", cNum, err)
-					return
+					return fmt.Errorf("error getting user data: %s", err)
 				}
 
 				newData := ret.([]user)
 
 				// id must be unique in API, if multiple objects returned -> stop
+				if len(newData) > 1 {
+					return fmt.Errorf("multiple objects returned")
+				}
+
 				// if len(newData) == 0 -> none returned), stop
-				if len(newData) != 1 {
-					log.Printf("client [%d]: returned slice length > 1\n", cNum)
-					return
+				if len(newData) == 0 {
+					return fmt.Errorf("user with id %d is not found", cb.ID)
 				}
 
 				found := false
@@ -163,32 +150,31 @@ func (data *entriesData) update(cNum int, cb callbackData) {
 		case "group":
 			// type - group and not id specified -> update all groupa
 			if cb.ID == 0 {
-				log.Printf("client [%d]: getting all groups data\n", cNum)
 				ret, err := getAPIData("group", 0)
 				if err != nil {
-					log.Printf("client [%d]: error getting groups data: %s\n", cNum, err)
+					return fmt.Errorf("error getting groups data: %s", err)
 				} else {
 					data.Groups = ret.([]group)
 				}
-
-				return
 			}
 
 			// update / append group by id
 			if cb.ID > 0 {
-				log.Printf("client [%d]: getting group data for id %d\n", cNum, cb.ID)
 				ret, err := getAPIData("group", cb.ID)
 				if err != nil {
-					log.Printf("client [%d]: error getting group data: %s\n", cNum, err)
+					return fmt.Errorf("error getting group data: %s", err)
 				}
 
 				newData := ret.([]group)
 
 				// id must be unique in API, if multiple objects returned -> stop
+				if len(newData) > 1 {
+					return fmt.Errorf("multiple objects returned")
+				}
+
 				// if len(newData) == 0 -> none returned), stop
-				if len(newData) != 1 {
-					log.Printf("client [%d]: returned slice length > 1\n", cNum)
-					return
+				if len(newData) == 0 {
+					return fmt.Errorf("group with id %d is not found", cb.ID)
 				}
 
 				found := false
@@ -205,10 +191,11 @@ func (data *entriesData) update(cNum int, cb callbackData) {
 				}
 			}
 		default:
-			log.Printf("client [%d]: got wrong callback data %s", httpClientID, cb.RAWMessage)
-			return
+			return fmt.Errorf("got wrong callback data %s", cb.RAWMessage)
 		}
 	}
+
+	return nil
 }
 
 func doRequest(reqURL string, body []byte) ([]byte, error) {

@@ -185,27 +185,49 @@ func main() {
 		}
 	}
 
-	// start in memory data updater
-	if updateTimeout > 0 {
-		go func() {
-			for {
-				entries.update(mainClientID, callbackData{})
-				time.Sleep(updateTimeout * time.Second)
+	// update entries data
+	go func() {
+		// initial data load
+		// if error occurs -> increment sleep timeout by 1
+		// until sleep timeout == updateTimeout
+		var dur time.Duration
+		for {
+			log.Printf("client [%d]: updating entries data\n", mainClientID)
+			err := entries.update(callbackData{})
+			if err != nil {
+				log.Printf("client [%d]: error updating entries data: %s\n", mainClientID, err)
+				dur += 1
+				if dur == updateTimeout {
+					break
+				}
+				time.Sleep(dur * time.Second)
+			} else {
+				break
 			}
-		}()
+		}
 
-		go func() {
-			chUsr := make(chan os.Signal)
-			for {
-				signal.Notify(chUsr, syscall.SIGUSR1)
-				<-chUsr
-				go entries.update(signalClientID, callbackData{})
+		// update data by ticker
+		// every N seconds
+		for range time.Tick(updateTimeout * time.Second) {
+			log.Printf("client [%d]: updating entries data\n", mainClientID)
+			if err := entries.update(callbackData{}); err != nil {
+				log.Printf("client [%d]: error updating entries data: %s\n", mainClientID, err)
 			}
-		}()
-	} else {
-		log.Printf("update timeout set to 0, wouldn't update data in future\n")
-		entries.update(mainClientID, callbackData{})
-	}
+		}
+	}()
+
+	// update data on SIGUSR1
+	go func() {
+		chUsr := make(chan os.Signal)
+		for {
+			signal.Notify(chUsr, syscall.SIGUSR1)
+			<-chUsr
+			log.Printf("client [%d]: updating entries data\n", signalClientID)
+			if err := entries.update(callbackData{}); err != nil {
+				log.Printf("client [%d]: error updating entries data: %s\n", signalClientID, err)
+			}
+		}
+	}()
 
 	// When CTRL+C, SIGINT and SIGTERM signal occurs
 	// Then stop server gracefully

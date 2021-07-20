@@ -177,12 +177,14 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	log.Printf("client [%d]: search base=\"%s\" scope=%d filter=\"%s\"", m.Client.Numero(), r.BaseObject(), r.Scope(), r.FilterString())
 	log.Printf("client [%d]: search attr=%s", m.Client.Numero(), strings.Join(attrs, " "))
 
-	// get 1.2.840.113556.1.4.319 from requested controls
+	// check requested controls
 	var controls []string
 	var simplePagedResultsControl ldap.SimplePagedResultsControl
+	var gotUCControl bool
 	if m.Controls() != nil {
 		for _, c := range *m.Controls() {
 			switch c.ControlType() {
+			// 1.2.840.113556.1.4.319 (pagedSearch)
 			case ldap.PagedResultsControlOID:
 				controls = append(controls, c.ControlType().String())
 				c, err := ldap.ReadPagedResultsControl(c.ControlValue())
@@ -193,24 +195,27 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			default:
 				if c.Criticality().Bool() {
 					controls = append(controls, c.ControlType().String()+"(U,C)")
+					gotUCControl = true
 				} else {
 					controls = append(controls, c.ControlType().String()+"(U)")
 				}
-				// TODO: Handle control criticality
-				// if c.Criticality().Bool() && stopOnUnsupportedCriticalControl {
-				// 	diagMessage := fmt.Sprintf("unsupported critical control %s", c.ControlType().String())
-				// 	res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnavailableCriticalExtension)
-				// 	res.SetDiagnosticMessage(diagMessage)
-				// 	w.Write(res)
-
-				// 	log.Printf("client [%d]: search error: %s", m.Client.Numero(), diagMessage)
-				// 	return
-				// }
 			}
 		}
 	}
 
 	log.Printf("client [%d]: search ctrl=%s", m.Client.Numero(), strings.Join(controls, " "))
+
+	// check for unsupported critical controls
+	if gotUCControl && respectCritical {
+		diagMessage := "got unsupported critical controls, aborting"
+		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnavailableCriticalExtension)
+		res.SetDiagnosticMessage(diagMessage)
+		w.Write(res)
+
+		log.Printf("client [%d]: search error: %s", m.Client.Numero(), diagMessage)
+		return
+	}
+
 	log.Printf("client [%d]: search sizelimit=%d pagesize=%d", m.Client.Numero(), r.SizeLimit(), simplePagedResultsControl.PageSize())
 
 	// handle stop signal

@@ -22,19 +22,20 @@ const (
 )
 
 var (
-	restURL       string
-	restFile      string
-	baseDN        string
-	bindAddress   string
-	bindPort      string
-	httpPort      string
-	noCallback    bool
-	useTLS        bool
-	serverCert    string
-	serverKey     string
-	logFile       string
-	authToken     string
-	updateTimeout time.Duration
+	restURL         string
+	restFile        string
+	baseDN          string
+	bindAddress     string
+	bindPort        string
+	httpPort        string
+	noCallback      bool
+	useTLS          bool
+	serverCert      string
+	serverKey       string
+	logFile         string
+	authToken       string
+	updateTimeout   time.Duration
+	respectCritical bool
 )
 
 var (
@@ -45,8 +46,8 @@ var (
 var usage = fmt.Sprintf(`%[1]s: simple LDAP emulator with HTTP REST backend, support bind / search / compare operations
 
 Usage:
-  %[1]s [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (-P <PORT>|--nocallback) (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -t <TOKEN> -T <SECONDS>]
-  %[1]s [-f <FILE> -b <BASEDN> -a <ADDRESS> -p <PORT> (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -T <SECONDS>]
+  %[1]s [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (-P <PORT>|--nocallback) (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -t <TOKEN> -T <SECONDS> -C]
+  %[1]s [-f <FILE> -b <BASEDN> -a <ADDRESS> -p <PORT> (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -T <SECONDS> -C]
 
 Options:
   -u, --url <URL>          rest api url [default: http://localhost/api]
@@ -62,6 +63,7 @@ Options:
   -l, --log <FILENAME>     log file path
   -t, --token <TOKEN>      rest authentication token
   -T, --timeout <SECONDS>  update REST data every <SECONDS>
+  -C, --criticality        respect requested control criticality
    
   -h, --help               show this screen
   -v, --version            show version
@@ -83,6 +85,7 @@ func init() {
 	useTLS = cmdOpts["--tls"].(bool)
 	serverCert = cmdOpts["--cert"].(string)
 	serverKey = cmdOpts["--key"].(string)
+	respectCritical = cmdOpts["--criticality"].(bool)
 
 	if cmdOpts["--file"] != nil {
 		restFile = cmdOpts["--file"].(string)

@@ -136,9 +136,6 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 // search DSE
 func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-	entries.Mutex.RLock()
-	defer entries.Mutex.RUnlock()
-
 	r := m.GetSearchRequest()
 
 	// attrs := []string{}

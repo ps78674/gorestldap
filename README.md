@@ -4,8 +4,8 @@
 gorestldap: simple LDAP emulator with HTTP REST backend, support bind / search / compare operations
 
 Usage:
-  gorestldap [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (-P <PORT>|--nocallback) (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -t <TOKEN> -T <SECONDS>]
-  gorestldap [-f <FILE> -b <BASEDN> -a <ADDRESS> -p <PORT> (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -T <SECONDS>]
+  gorestldap [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (-P <PORT>|--nocallback) (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -t <TOKEN> -T <SECONDS> -C]
+  gorestldap [-f <FILE> -b <BASEDN> -a <ADDRESS> -p <PORT> (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -T <SECONDS> -C]
 
 Options:
   -u, --url <URL>          rest api url [default: http://localhost/api]
@@ -21,6 +21,7 @@ Options:
   -l, --log <FILENAME>     log file path
   -t, --token <TOKEN>      rest authentication token
   -T, --timeout <SECONDS>  update REST data every <SECONDS>
+  -C, --criticality        respect requested control criticality
    
   -h, --help               show this screen
   -v, --version            show version

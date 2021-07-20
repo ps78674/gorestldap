@@ -229,13 +229,14 @@ func main() {
 		}
 	}()
 
-	// When CTRL+C, SIGINT and SIGTERM signal occurs
-	// Then stop server gracefully
+	// graceful stop on CTRL+C / SIGINT / SIGTERM
 	ch := make(chan os.Signal)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	<-ch
-	close(ch)
 
 	httpServer.Shutdown()
 	ldapServer.Stop()
+
+	signal.Stop(ch)
+	close(ch)
 }

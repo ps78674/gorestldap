@@ -22,19 +22,20 @@ const (
 )
 
 var (
-	restURL       string
-	restFile      string
-	baseDN        string
-	bindAddress   string
-	bindPort      string
-	httpPort      string
-	noCallback    bool
-	useTLS        bool
-	serverCert    string
-	serverKey     string
-	logFile       string
-	authToken     string
-	updateTimeout time.Duration
+	restURL         string
+	restFile        string
+	baseDN          string
+	bindAddress     string
+	bindPort        string
+	httpPort        string
+	noCallback      bool
+	useTLS          bool
+	serverCert      string
+	serverKey       string
+	logFile         string
+	authToken       string
+	updateTimeout   time.Duration
+	respectCritical bool
 )
 
 var (
@@ -45,8 +46,8 @@ var (
 var usage = fmt.Sprintf(`%[1]s: simple LDAP emulator with HTTP REST backend, support bind / search / compare operations
 
 Usage:
-  %[1]s [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (-P <PORT>|--nocallback) (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -t <TOKEN> -T <SECONDS>]
-  %[1]s [-f <FILE> -b <BASEDN> -a <ADDRESS> -p <PORT> (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -T <SECONDS>]
+  %[1]s [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (-P <PORT>|--nocallback) (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -t <TOKEN> -T <SECONDS> -C]
+  %[1]s [-f <FILE> -b <BASEDN> -a <ADDRESS> -p <PORT> (--tls --cert <CERTFILE> --key <KEYFILE>) -l <FILENAME> -T <SECONDS> -C]
 
 Options:
   -u, --url <URL>          rest api url [default: http://localhost/api]
@@ -62,6 +63,7 @@ Options:
   -l, --log <FILENAME>     log file path
   -t, --token <TOKEN>      rest authentication token
   -T, --timeout <SECONDS>  update REST data every <SECONDS>
+  -C, --criticality        respect requested control criticality
    
   -h, --help               show this screen
   -v, --version            show version
@@ -83,6 +85,7 @@ func init() {
 	useTLS = cmdOpts["--tls"].(bool)
 	serverCert = cmdOpts["--cert"].(string)
 	serverKey = cmdOpts["--key"].(string)
+	respectCritical = cmdOpts["--criticality"].(bool)
 
 	if cmdOpts["--file"] != nil {
 		restFile = cmdOpts["--file"].(string)
@@ -185,35 +188,58 @@ func main() {
 		}
 	}
 
-	// start in memory data updater
-	if updateTimeout > 0 {
-		go func() {
-			for {
-				entries.update(mainClientID, callbackData{})
-				time.Sleep(updateTimeout * time.Second)
+	// update entries data
+	go func() {
+		// initial data load
+		// if error occurs -> increment sleep timeout by 1
+		// until sleep timeout == updateTimeout
+		var dur time.Duration
+		for {
+			log.Printf("client [%d]: updating entries data\n", mainClientID)
+			err := entries.update(callbackData{})
+			if err != nil {
+				log.Printf("client [%d]: error updating entries data: %s\n", mainClientID, err)
+				dur += 1
+				if dur == updateTimeout {
+					break
+				}
+				time.Sleep(dur * time.Second)
+			} else {
+				break
 			}
-		}()
+		}
 
-		go func() {
-			chUsr := make(chan os.Signal)
-			for {
-				signal.Notify(chUsr, syscall.SIGUSR1)
-				<-chUsr
-				go entries.update(signalClientID, callbackData{})
+		// update data by ticker
+		// every N seconds
+		for range time.Tick(updateTimeout * time.Second) {
+			log.Printf("client [%d]: updating entries data\n", mainClientID)
+			if err := entries.update(callbackData{}); err != nil {
+				log.Printf("client [%d]: error updating entries data: %s\n", mainClientID, err)
 			}
-		}()
-	} else {
-		log.Printf("update timeout set to 0, wouldn't update data in future\n")
-		entries.update(mainClientID, callbackData{})
-	}
+		}
+	}()
 
-	// When CTRL+C, SIGINT and SIGTERM signal occurs
-	// Then stop server gracefully
+	// update data on SIGUSR1
+	go func() {
+		chUsr := make(chan os.Signal)
+		for {
+			signal.Notify(chUsr, syscall.SIGUSR1)
+			<-chUsr
+			log.Printf("client [%d]: updating entries data\n", signalClientID)
+			if err := entries.update(callbackData{}); err != nil {
+				log.Printf("client [%d]: error updating entries data: %s\n", signalClientID, err)
+			}
+		}
+	}()
+
+	// graceful stop on CTRL+C / SIGINT / SIGTERM
 	ch := make(chan os.Signal)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	<-ch
-	close(ch)
 
 	httpServer.Shutdown()
 	ldapServer.Stop()
+
+	signal.Stop(ch)
+	close(ch)
 }

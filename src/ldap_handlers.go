@@ -9,6 +9,26 @@ import (
 	ldapserver "github.com/ps78674/ldapserver"
 )
 
+type clientACL struct {
+	bindEntry string
+	search    bool
+	compare   bool
+	modify    bool
+}
+
+type searchControl struct {
+	domainDone bool
+	usersDone  bool
+	groupsDone bool
+	count      int
+	sent       int
+}
+
+type additionalData struct {
+	acl clientACL
+	sc  searchControl
+}
+
 // handle bind
 func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	entries.Mutex.RLock()
@@ -89,20 +109,24 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
-	// TODO: different json attributes for search / compare / modify ??
-	acl := ldapserver.ClientACL{
-		BindEntry: userData.CN,
+	acl := clientACL{
+		bindEntry: userData.CN,
 	}
 
 	if userData.LDAPAdmin {
-		acl = ldapserver.ClientACL{
-			Search:  true,
-			Compare: true,
-			Modify:  true,
+		acl = clientACL{
+			search:  true,
+			compare: true,
+			modify:  true,
 		}
 	}
 
-	m.Client.SetACL(acl)
+	addData := additionalData{
+		acl: acl,
+	}
+
+	// update additional data with created ACLs
+	m.Client.SetAddData(addData)
 
 	res := ldapserver.NewBindResponse(ldapserver.LDAPResultSuccess)
 	w.Write(res)
@@ -112,9 +136,6 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 // search DSE
 func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-	entries.Mutex.RLock()
-	defer entries.Mutex.RUnlock()
-
 	r := m.GetSearchRequest()
 
 	// attrs := []string{}
@@ -156,12 +177,14 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	log.Printf("client [%d]: search base=\"%s\" scope=%d filter=\"%s\"", m.Client.Numero(), r.BaseObject(), r.Scope(), r.FilterString())
 	log.Printf("client [%d]: search attr=%s", m.Client.Numero(), strings.Join(attrs, " "))
 
-	// get 1.2.840.113556.1.4.319 from requested controls
+	// check requested controls
 	var controls []string
 	var simplePagedResultsControl ldap.SimplePagedResultsControl
+	var gotUCControl bool
 	if m.Controls() != nil {
 		for _, c := range *m.Controls() {
 			switch c.ControlType() {
+			// 1.2.840.113556.1.4.319 (pagedSearch)
 			case ldap.PagedResultsControlOID:
 				controls = append(controls, c.ControlType().String())
 				c, err := ldap.ReadPagedResultsControl(c.ControlValue())
@@ -172,31 +195,33 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			default:
 				if c.Criticality().Bool() {
 					controls = append(controls, c.ControlType().String()+"(U,C)")
+					gotUCControl = true
 				} else {
 					controls = append(controls, c.ControlType().String()+"(U)")
 				}
-				// TODO: Handle control criticality
-				// if c.Criticality().Bool() && stopOnUnsupportedCriticalControl {
-				// 	diagMessage := fmt.Sprintf("unsupported critical control %s", c.ControlType().String())
-				// 	res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnavailableCriticalExtension)
-				// 	res.SetDiagnosticMessage(diagMessage)
-				// 	w.Write(res)
-
-				// 	log.Printf("client [%d]: search error: %s", m.Client.Numero(), diagMessage)
-				// 	return
-				// }
 			}
 		}
 	}
 
 	log.Printf("client [%d]: search ctrl=%s", m.Client.Numero(), strings.Join(controls, " "))
+
+	// check for unsupported critical controls
+	if gotUCControl && respectCritical {
+		diagMessage := "got unsupported critical controls, aborting"
+		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnavailableCriticalExtension)
+		res.SetDiagnosticMessage(diagMessage)
+		w.Write(res)
+
+		log.Printf("client [%d]: search error: %s", m.Client.Numero(), diagMessage)
+		return
+	}
+
 	log.Printf("client [%d]: search sizelimit=%d pagesize=%d", m.Client.Numero(), r.SizeLimit(), simplePagedResultsControl.PageSize())
 
 	// handle stop signal
 	select {
 	case <-m.Done:
 		log.Printf("client [%d]: leaving handleSearch...", m.Client.Numero())
-		deleteSearchControl(m.Client.Numero())
 		return
 	default:
 	}
@@ -215,8 +240,11 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
+	// get client's additional data
+	addData := m.Client.GetAddData().(additionalData)
+
 	// non admin user allowed to search only over his entry
-	if !m.Client.ACL().Search && (baseObjectAttr != "cn" || (baseObjectAttr == "cn" && baseObjectName != m.Client.ACL().BindEntry)) {
+	if !addData.acl.search && (baseObjectAttr != "cn" || (baseObjectAttr == "cn" && baseObjectName != addData.acl.bindEntry)) {
 		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultNoSuchObject)
 		w.Write(res)
 
@@ -236,11 +264,8 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		left = 1 + len(entries.Users) + len(entries.Groups)
 	}
 
-	// create client flow control checker
-	searchFlowControl := getSearchControl(m.Client.Numero())
-
 	// if domain processed -> go to users
-	if searchFlowControl.domainDone {
+	if addData.sc.domainDone {
 		goto users
 	}
 
@@ -256,34 +281,33 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			return
 		}
 
-		if r.SizeLimit().Int() > 0 && searchFlowControl.sent == r.SizeLimit().Int() {
+		if r.SizeLimit().Int() > 0 && addData.sc.sent == r.SizeLimit().Int() {
 			sizeLimitReached = true
 			goto end
 		} else if ok {
 			e := createSearchResultEntry(entries.Domain, r.Attributes(), baseDN)
 			w.Write(e)
 
-			searchFlowControl.sent++
+			addData.sc.sent++
 			entriesWritten++
 			left--
 		}
 	}
 
 	// domain processed
-	searchFlowControl.domainDone = true
+	addData.sc.domainDone = true
 
 users:
 	// if all users processed -> go to groups
-	if searchFlowControl.usersDone {
+	if addData.sc.usersDone {
 		goto groups
 	}
 
-	for i := searchFlowControl.count; i < len(entries.Users); i++ {
+	for i := addData.sc.count; i < len(entries.Users); i++ {
 		// handle stop signal
 		select {
 		case <-m.Done:
 			log.Printf("client [%d]: leaving handleSearch...", m.Client.Numero())
-			deleteSearchControl(m.Client.Numero())
 			return
 		default:
 		}
@@ -293,7 +317,7 @@ users:
 		}
 
 		if !lastIteration {
-			searchFlowControl.count++
+			addData.sc.count++
 		}
 
 		// if entry not end with baseDN OR baseObject == entry AND (searchScope == 1 OR searchScope == 3) -> skip
@@ -304,7 +328,7 @@ users:
 		}
 
 		// if size limit reached -> go to response
-		if r.SizeLimit().Int() > 0 && searchFlowControl.sent == r.SizeLimit().Int() {
+		if r.SizeLimit().Int() > 0 && addData.sc.sent == r.SizeLimit().Int() {
 			sizeLimitReached = true
 			goto end
 		}
@@ -332,22 +356,21 @@ users:
 		e := createSearchResultEntry(entries.Users[i], r.Attributes(), entryName)
 		w.Write(e)
 
-		searchFlowControl.sent++
+		addData.sc.sent++
 		entriesWritten++
 		left--
 	}
 
 	// users processed
-	searchFlowControl.count = 0
-	searchFlowControl.usersDone = true
+	addData.sc.count = 0
+	addData.sc.usersDone = true
 
 groups:
-	for i := searchFlowControl.count; i < len(entries.Groups); i++ {
+	for i := addData.sc.count; i < len(entries.Groups); i++ {
 		// handle stop signal
 		select {
 		case <-m.Done:
 			log.Printf("client [%d]: leaving handleSearch...", m.Client.Numero())
-			deleteSearchControl(m.Client.Numero())
 			return
 		default:
 		}
@@ -357,7 +380,7 @@ groups:
 		}
 
 		if !lastIteration {
-			searchFlowControl.count++
+			addData.sc.count++
 		}
 
 		// if entry not end with baseDN OR baseObject == entry AND (searchScope == 1 OR searchScope == 3) -> skip
@@ -368,7 +391,7 @@ groups:
 		}
 
 		// if size limit reached -> brake loop
-		if r.SizeLimit().Int() > 0 && searchFlowControl.sent == r.SizeLimit().Int() {
+		if r.SizeLimit().Int() > 0 && addData.sc.sent == r.SizeLimit().Int() {
 			sizeLimitReached = true
 			goto end
 		}
@@ -396,14 +419,14 @@ groups:
 		e := createSearchResultEntry(entries.Groups[i], r.Attributes(), entryName)
 		w.Write(e)
 
-		searchFlowControl.sent++
+		addData.sc.sent++
 		entriesWritten++
 		left--
 	}
 
 	// groups processed
-	searchFlowControl.count = 0
-	searchFlowControl.groupsDone = true
+	addData.sc.count = 0
+	addData.sc.groupsDone = true
 
 end:
 	newControls := ldap.Controls{}
@@ -411,9 +434,10 @@ end:
 		cpCookie := ldap.OCTETSTRING(programName)
 
 		// end search
-		if (searchFlowControl.domainDone && searchFlowControl.usersDone && searchFlowControl.groupsDone) || sizeLimitReached {
+		if (addData.sc.domainDone && addData.sc.usersDone && addData.sc.groupsDone) || sizeLimitReached {
 			cpCookie = ldap.OCTETSTRING("")
-			deleteSearchControl(m.Client.Numero())
+			// end search -> cleanup search control
+			addData.sc = searchControl{}
 		}
 
 		// encode new paged results control
@@ -431,9 +455,12 @@ end:
 		c := ldap.NewControl(ldap.PagedResultsControlOID, ldap.BOOLEAN(true), *v)
 		newControls = append(newControls, c)
 	} else {
-		// end search
-		deleteSearchControl(m.Client.Numero())
+		// end search -> cleanup search control
+		addData.sc = searchControl{}
 	}
+
+	// update additional data with new search control
+	m.Client.SetAddData(addData)
 
 	resultCode := ldapserver.LDAPResultSuccess
 	if sizeLimitReached {
@@ -482,8 +509,11 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
+	// get client's additional data
+	addData := m.Client.GetAddData().(additionalData)
+
 	// requested compare on domain and user not ldap admin OR compare entry != bind entry and user not ldap admin
-	if (compareEntry == baseDN && !m.Client.ACL().Compare) || (m.Client.ACL().BindEntry != compareEntryName && !m.Client.ACL().Compare) {
+	if (compareEntry == baseDN && !addData.acl.compare) || (addData.acl.bindEntry != compareEntryName && !addData.acl.compare) {
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultInsufficientAccessRights)
 		w.Write(res)
 
@@ -571,8 +601,11 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
+	// get client's additional data
+	addData := m.Client.GetAddData().(additionalData)
+
 	// ldap admin can do modify on all entries
-	if m.Client.ACL().BindEntry != modifyEntryName && !m.Client.ACL().Modify {
+	if addData.acl.bindEntry != modifyEntryName && !addData.acl.modify {
 		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultInsufficientAccessRights)
 		w.Write(res)
 

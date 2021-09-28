@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"sync"
+	"time"
 
 	"github.com/valyala/fasthttp"
 )
@@ -16,14 +17,14 @@ const (
 
 type domain struct {
 	ObjectClass     []string `json:"objectClass"`
-	HasSubordinates string   `json:"hasSubordinates" hidden:"yes"`
+	HasSubordinates string   `json:"hasSubordinates" hidden:""`
 }
 
 type user struct {
-	LDAPAdmin       bool     `json:"ldapAdmin" skip:"yes"`
-	EntryUUID       string   `json:"entryUUID" hidden:"yes"`
-	HasSubordinates string   `json:"hasSubordinates" hidden:"yes"`
-	ObjectClass     []string `json:"objectClass"`
+	LDAPAdmin       bool     `json:"ldapAdmin" skip:""`
+	EntryUUID       string   `json:"entryUUID" hidden:""`
+	HasSubordinates string   `json:"hasSubordinates" hidden:""`
+	ObjectClass     []string `json:"objectClass" lower:""`
 	CN              string   `json:"cn"`
 	UIDNumber       string   `json:"uidNumber"`
 	UserPassword    string   `json:"userPassword"`
@@ -40,9 +41,9 @@ type user struct {
 }
 
 type group struct {
-	EntryUUID       string   `json:"entryUUID" hidden:"yes"`
-	HasSubordinates string   `json:"hasSubordinates" hidden:"yes"`
-	ObjectClass     []string `json:"objectClass"`
+	EntryUUID       string   `json:"entryUUID" hidden:""`
+	HasSubordinates string   `json:"hasSubordinates" hidden:""`
+	ObjectClass     []string `json:"objectClass" lower:""`
 	CN              string   `json:"cn"`
 	GIDNumber       string   `json:"gidNumber"`
 	Description     string   `json:"description"`
@@ -51,58 +52,59 @@ type group struct {
 }
 
 type entriesData struct {
-	Mutex  sync.RWMutex
-	Domain domain
-	Users  []user
-	Groups []group
+	Domain   domain
+	Users    []user
+	Groups   []group
+	dataMu   sync.RWMutex // mutex for ldap handlers
+	updateMu sync.Mutex   // mutex for update goroutines
 }
 
-var entries entriesData
+var dom = domain{
+	ObjectClass: []string{
+		"top",
+		"domain",
+	},
+	HasSubordinates: "TRUE",
+}
 
 func (data *entriesData) update(cb callbackData) error {
-	data.Mutex.Lock()
-	defer data.Mutex.Unlock()
+	var newUsers, newGroups interface{}
 
-	data.Domain = domain{
-		ObjectClass: []string{
-			"top",
-			"domain",
-		},
-		HasSubordinates: "TRUE",
-	}
+	data.updateMu.Lock()
+	defer data.updateMu.Unlock()
 
-	if len(restFile) > 0 {
-		fileContents, err := ioutil.ReadFile(restFile)
+	if len(cmdOpts.File) > 0 {
+		fileContents, err := ioutil.ReadFile(cmdOpts.File)
 		if err != nil {
 			return fmt.Errorf("error opening file: %s", err)
 		}
 
-		fileData := entriesData{}
-		if err := json.Unmarshal(fileContents, &fileData); err != nil {
+		newData := entriesData{}
+		if err := json.Unmarshal(fileContents, &newData); err != nil {
 			return fmt.Errorf("error unmarshalling file data: %s", err)
 		}
 
-		data.Users = fileData.Users
-		data.Groups = fileData.Groups
+		newUsers = newData.Users
+		newGroups = newData.Groups
 	}
 
-	if len(restFile) == 0 && len(cb.Type) == 0 {
+	if len(cmdOpts.File) == 0 && len(cb.Type) == 0 {
 		ret, err := getAPIData("user", 0)
 		if err != nil {
 			return fmt.Errorf("error getting users data: %s", err)
 		} else {
-			data.Users = ret.([]user)
+			newUsers = ret
 		}
 
 		ret, err = getAPIData("group", 0)
 		if err != nil {
 			return fmt.Errorf("error getting groups data: %s", err)
 		} else {
-			data.Groups = ret.([]group)
+			newGroups = ret
 		}
 	}
 
-	if len(restFile) == 0 && len(cb.Type) > 0 {
+	if len(cmdOpts.File) == 0 && len(cb.Type) > 0 {
 		switch cb.Type {
 		case "user":
 			// type - user and not id specified == update all users
@@ -110,42 +112,27 @@ func (data *entriesData) update(cb callbackData) error {
 				ret, err := getAPIData("user", 0)
 				if err != nil {
 					return fmt.Errorf("error getting users data: %s", err)
-				} else {
-					data.Users = ret.([]user)
 				}
-			}
 
-			// update / append user by id
-			if cb.ID > 0 {
+				newUsers = ret
+			} else {
+				// update / append user by id
 				ret, err := getAPIData("user", cb.ID)
 				if err != nil {
 					return fmt.Errorf("error getting user data: %s", err)
 				}
 
-				newData := ret.([]user)
-
 				// id must be unique in API, if multiple objects returned -> stop
-				if len(newData) > 1 {
+				if len(ret.([]user)) > 1 {
 					return fmt.Errorf("multiple objects returned")
 				}
 
 				// if len(newData) == 0 -> none returned), stop
-				if len(newData) == 0 {
+				if len(ret.([]user)) == 0 {
 					return fmt.Errorf("user with id %d is not found", cb.ID)
 				}
 
-				found := false
-				for i := range data.Users {
-					if data.Users[i].UIDNumber == newData[0].UIDNumber {
-						data.Users[i] = newData[0]
-						found = true
-						break
-					}
-				}
-
-				if !found {
-					data.Users = append(data.Users, newData[0])
-				}
+				newUsers = ret
 			}
 		case "group":
 			// type - group and not id specified -> update all groupa
@@ -153,9 +140,9 @@ func (data *entriesData) update(cb callbackData) error {
 				ret, err := getAPIData("group", 0)
 				if err != nil {
 					return fmt.Errorf("error getting groups data: %s", err)
-				} else {
-					data.Groups = ret.([]group)
 				}
+
+				newGroups = ret
 			}
 
 			// update / append group by id
@@ -165,36 +152,61 @@ func (data *entriesData) update(cb callbackData) error {
 					return fmt.Errorf("error getting group data: %s", err)
 				}
 
-				newData := ret.([]group)
-
 				// id must be unique in API, if multiple objects returned -> stop
-				if len(newData) > 1 {
+				if len(ret.([]group)) > 1 {
 					return fmt.Errorf("multiple objects returned")
 				}
 
 				// if len(newData) == 0 -> none returned), stop
-				if len(newData) == 0 {
+				if len(ret.([]group)) == 0 {
 					return fmt.Errorf("group with id %d is not found", cb.ID)
 				}
 
-				found := false
-				for i := range data.Groups {
-					if data.Groups[i].GIDNumber == newData[0].GIDNumber {
-						data.Groups[i] = newData[0]
-						found = true
-						break
-					}
-				}
-
-				if !found {
-					data.Groups = append(data.Groups, newData[0])
-				}
+				newGroups = ret
 			}
 		default:
 			return fmt.Errorf("got wrong callback data %s", cb.RAWMessage)
 		}
 	}
 
+	data.dataMu.Lock()
+	defer data.dataMu.Unlock()
+
+	if newUsers != nil {
+		if newUsers := newUsers.([]user); len(newUsers) == 1 {
+			found := false
+			for i := range data.Users {
+				if data.Users[i].UIDNumber == newUsers[0].UIDNumber {
+					data.Users[i] = newUsers[0]
+					found = true
+					break
+				}
+			}
+			if !found {
+				data.Users = append(data.Users, newUsers[0])
+			}
+		} else {
+			data.Users = newUsers
+		}
+	}
+
+	if newGroups != nil {
+		if newGroups := newGroups.([]group); len(newGroups) == 1 {
+			found := false
+			for i := range data.Groups {
+				if data.Groups[i].GIDNumber == newGroups[0].GIDNumber {
+					data.Groups[i] = newGroups[0]
+					found = true
+					break
+				}
+			}
+			if !found {
+				data.Groups = append(data.Groups, newGroups[0])
+			}
+		} else {
+			data.Groups = newGroups
+		}
+	}
 	return nil
 }
 
@@ -205,19 +217,25 @@ func doRequest(reqURL string, body []byte) ([]byte, error) {
 	defer fasthttp.ReleaseResponse(resp)
 
 	req.SetRequestURI(reqURL)
-	if len(authToken) > 0 {
-		req.Header.Add("Authorization", fmt.Sprintf("Token %s", authToken))
+	if len(cmdOpts.AuthToken) > 0 {
+		req.Header.Add("Authorization", fmt.Sprintf("Token %s", cmdOpts.AuthToken))
 	}
 
-	if len(body) > 0 {
+	if body != nil {
 		req.Header.SetContentType("application/json")
 		req.Header.SetMethod("PUT")
 		req.SetBody(body)
 	}
 
-	httpClient := &fasthttp.Client{}
+	httpClient := &fasthttp.Client{
+		ReadTimeout:  time.Duration(cmdOpts.ReqTimeout) * time.Second,
+		WriteTimeout: time.Duration(cmdOpts.ReqTimeout) * time.Second,
+	}
 	if err := httpClient.Do(req, resp); err != nil {
 		return nil, err
+	}
+	if resp.StatusCode() != fasthttp.StatusOK {
+		return nil, fmt.Errorf("got status code %d", resp.StatusCode())
 	}
 
 	return resp.Body(), nil
@@ -227,12 +245,12 @@ func doRequest(reqURL string, body []byte) ([]byte, error) {
 func getAPIData(reqType string, id int) (ret interface{}, err error) {
 	switch reqType {
 	case "user":
-		reqURL := fmt.Sprintf("%s%s", restURL, urlLDAPUsers)
+		reqURL := fmt.Sprintf("%s%s", cmdOpts.URL, urlLDAPUsers)
 		if id > 0 {
 			reqURL = fmt.Sprintf("%s?uidNumber=%d", reqURL, id)
 		}
 
-		respData, e := doRequest(reqURL, []byte{})
+		respData, e := doRequest(reqURL, nil)
 		if e != nil {
 			err = fmt.Errorf("error getting response: %s", e)
 			return
@@ -246,12 +264,12 @@ func getAPIData(reqType string, id int) (ret interface{}, err error) {
 		}
 		ret = data
 	case "group":
-		reqURL := fmt.Sprintf("%s%s", restURL, urlLDAPGroups)
+		reqURL := fmt.Sprintf("%s%s", cmdOpts.URL, urlLDAPGroups)
 		if id > 0 {
 			reqURL = fmt.Sprintf("%s?gidNumber=%d", reqURL, id)
 		}
 
-		respData, e := doRequest(reqURL, []byte{})
+		respData, e := doRequest(reqURL, nil)
 		if e != nil {
 			err = fmt.Errorf("error getting response: %s", e)
 			return

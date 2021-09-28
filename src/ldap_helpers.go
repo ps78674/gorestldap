@@ -25,25 +25,14 @@ type attrValues struct {
 func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	switch f.(type) {
 	case ldap.FilterEqualityMatch:
-		attrName := strings.ToLower(reflect.ValueOf(f).Field(0).String()) // CN|cn -> compare in lowercase
-		attrValue := reflect.ValueOf(f).Field(1).String()
+		filter := f.(ldap.FilterEqualityMatch)
+		attrName := strings.ToLower(string(filter.AttributeDesc())) // CN|cn -> compare in lowercase
+		attrValue := string(filter.AssertionValue())
 
 		rValue := reflect.ValueOf(o)
 		for i := 0; i < rValue.Type().NumField(); i++ {
-			if attrName == "objectclass" && reflect.TypeOf(o).String() == "main.restUser" {
-				switch strings.ToLower(attrValue) {
-				case "top", "posixaccount", "shadowaccount", "organizationalperson", "inetorgperson", "person":
-					return true, nil
-				}
-			}
-			if attrName == "objectclass" && reflect.TypeOf(o).String() == "main.restGroup" {
-				switch strings.ToLower(attrValue) {
-				case "top", "posixgroup":
-					return true, nil
-				}
-			}
-			if attrName == "entrydn" && strings.HasSuffix(attrValue, baseDN) {
-				newValues := strings.SplitN(strings.TrimSuffix(attrValue, fmt.Sprintf(",%s", baseDN)), "=", 2)
+			if attrName == "entrydn" && strings.HasSuffix(attrValue, cmdOpts.BaseDN) {
+				newValues := strings.SplitN(strings.TrimSuffix(attrValue, ","+cmdOpts.BaseDN), "=", 2)
 				attrName = newValues[0]
 				attrValue = newValues[1]
 			}
@@ -64,6 +53,10 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 			case []string:
 				for j := 0; j < rValue.Field(i).Len(); j++ {
 					restValue := rValue.Field(i).Index(j).String()
+					if _, ok := rValue.Type().Field(i).Tag.Lookup("lower"); ok {
+						attrValue = strings.ToLower(attrValue)
+						restValue = strings.ToLower(restValue)
+					}
 					if restValue == attrValue {
 						return true, nil
 					}
@@ -107,7 +100,7 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 		rValue := reflect.ValueOf(o)
 		for i := 0; i < rValue.Type().NumField(); i++ {
 			if strings.ToLower(reflect.ValueOf(f).String()) == "objectclass" || strings.ToLower(reflect.ValueOf(f).String()) == "entrydn" ||
-				(strings.ToLower(rValue.Type().Field(i).Name) == strings.ToLower(reflect.ValueOf(f).String()) && rValue.Field(i).Len() > 0) {
+				(strings.EqualFold(rValue.Type().Field(i).Name, reflect.ValueOf(f).String()) && rValue.Field(i).Len() > 0) {
 				return true, nil
 			}
 		}
@@ -137,6 +130,10 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 				case []string:
 					for k := 0; k < rValue.Field(i).Len(); k++ {
 						restValue := rValue.Field(i).Index(k).String()
+						if _, ok := rValue.Type().Field(i).Tag.Lookup("lower"); ok {
+							attrValue = strings.ToLower(attrValue)
+							restValue = strings.ToLower(restValue)
+						}
 						if strings.HasPrefix(restValue, attrValue) {
 							return true, nil
 						}
@@ -174,6 +171,10 @@ func doCompare(o interface{}, attrName string, attrValue string) bool {
 		case []string:
 			for j := 0; j < rValue.Field(i).Len(); j++ {
 				restValue := rValue.Field(i).Index(j).String()
+				if _, ok := rValue.Type().Field(i).Tag.Lookup("lower"); ok {
+					attrValue = strings.ToLower(attrValue)
+					restValue = strings.ToLower(restValue)
+				}
 				if restValue == attrValue {
 					return true
 				}
@@ -186,13 +187,13 @@ func doCompare(o interface{}, attrName string, attrValue string) bool {
 
 // create slice of ldap attributes
 func newLDAPAttributeValues(in interface{}) (out []ldap.AttributeValue) {
-	switch in.(type) {
+	switch in := in.(type) {
 	case []string:
-		for _, v := range in.([]string) {
+		for _, v := range in {
 			out = append(out, ldap.AttributeValue(v))
 		}
 	case string:
-		out = append(out, ldap.AttributeValue(in.(string)))
+		out = append(out, ldap.AttributeValue(in))
 	}
 
 	return
@@ -200,7 +201,7 @@ func newLDAPAttributeValues(in interface{}) (out []ldap.AttributeValue) {
 
 // trim spaces for entries (dc=test, dc.example,  dc=org -> dc=test,dc.example,dc=org)
 func trimSpacesAfterComma(s string) string {
-	re := regexp.MustCompile("(,[\\s]+)")
+	re := regexp.MustCompile(`(,[\s]+)`)
 	return re.ReplaceAllString(s, ",")
 }
 
@@ -211,13 +212,13 @@ func doModify(cn string, pw string) error {
 		return err
 	}
 
-	reqURL := fmt.Sprintf("%s%s", restURL, urlLDAPUsers)
+	reqURL := fmt.Sprintf("%s%s", cmdOpts.URL, urlLDAPUsers)
 	nb, err := doRequest(reqURL, b)
 	if err != nil {
 		return err
 	}
 
-	if bytes.Compare(b, nb) != 0 {
+	if !bytes.Equal(b, nb) {
 		return fmt.Errorf("%s", nb)
 	}
 
@@ -228,13 +229,10 @@ func doModify(cn string, pw string) error {
 func getAllAttrsAndValues(o interface{}, operationalOnly bool) (ret []attrValues) {
 	rValue := reflect.ValueOf(o)
 	for i := 0; i < rValue.NumField(); i++ {
-		if rValue.Type().Field(i).Tag.Get("skip") == "yes" {
+		if _, ok := rValue.Type().Field(i).Tag.Lookup("skip"); ok {
 			continue
 		}
-		if operationalOnly && rValue.Type().Field(i).Tag.Get("hidden") != "yes" {
-			continue
-		}
-		if !operationalOnly && rValue.Type().Field(i).Tag.Get("hidden") == "yes" {
+		if _, ok := rValue.Type().Field(i).Tag.Lookup("hidden"); (!ok && operationalOnly) || (ok && !operationalOnly) {
 			continue
 		}
 
@@ -305,7 +303,7 @@ func createSearchResultEntry(o interface{}, attrs ldap.AttributeSelection, entry
 }
 
 func getEntryAttrAndName(e string) (attr string, name string) {
-	trimmed := strings.TrimSuffix(e, ","+baseDN)
+	trimmed := strings.TrimSuffix(e, ","+cmdOpts.BaseDN)
 
 	// entry == baseDN
 	if trimmed == e {

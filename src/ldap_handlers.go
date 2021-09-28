@@ -30,9 +30,9 @@ type additionalData struct {
 }
 
 // handle bind
-func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-	entries.Mutex.RLock()
-	defer entries.Mutex.RUnlock()
+func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, data *entriesData) {
+	data.dataMu.RLock()
+	defer data.dataMu.RUnlock()
 
 	r := m.GetBindRequest()
 	log.Printf("client [%d]: bind dn=\"%s\"", m.Client.Numero(), r.Name())
@@ -52,7 +52,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	// TODO: change diag message
 	bindEntry := trimSpacesAfterComma(string(r.Name()))
 	bindEntryAttr, bindEntryName := getEntryAttrAndName(bindEntry)
-	if !strings.HasSuffix(bindEntry, baseDN) || (bindEntryAttr != "cn" && bindEntryAttr != "uid") {
+	if !strings.HasSuffix(bindEntry, cmdOpts.BaseDN) || (bindEntryAttr != "cn" && bindEntryAttr != "uid") {
 		diagMessage := fmt.Sprintf("wrong dn \"%s\"", r.Name())
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidDNSyntax)
 		res.SetDiagnosticMessage(diagMessage)
@@ -63,9 +63,9 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}
 
 	userData := user{}
-	for _, u := range entries.Users {
+	for _, u := range data.Users {
 		// compare in lowercase makes bind dn case insensitive
-		if strings.ToLower(u.CN) == strings.ToLower(bindEntryName) {
+		if strings.EqualFold(u.CN, bindEntryName) {
 			userData = u
 			break
 		}
@@ -153,7 +153,7 @@ func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	e.AddAttribute("objectClass", "top", "LDAProotDSE")
 	e.AddAttribute("supportedLDAPVersion", "3")
 	e.AddAttribute("supportedControl", ldap.AttributeValue(ldap.PagedResultsControlOID))
-	e.AddAttribute("namingContexts", ldap.AttributeValue(baseDN))
+	e.AddAttribute("namingContexts", ldap.AttributeValue(cmdOpts.BaseDN))
 	// e.AddAttribute("supportedSASLMechanisms", "")
 
 	w.Write(e)
@@ -163,9 +163,9 @@ func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 }
 
 // handle search
-func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-	entries.Mutex.RLock()
-	defer entries.Mutex.RUnlock()
+func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, data *entriesData) {
+	data.dataMu.RLock()
+	defer data.dataMu.RUnlock()
 
 	r := m.GetSearchRequest()
 
@@ -206,7 +206,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	log.Printf("client [%d]: search ctrl=%s", m.Client.Numero(), strings.Join(controls, " "))
 
 	// check for unsupported critical controls
-	if gotUCControl && respectCritical {
+	if gotUCControl && cmdOpts.RespectCritical {
 		diagMessage := "got unsupported critical controls, aborting"
 		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnavailableCriticalExtension)
 		res.SetDiagnosticMessage(diagMessage)
@@ -230,7 +230,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	// TODO: change diag message
 	baseObject := trimSpacesAfterComma(string(r.BaseObject()))
 	baseObjectAttr, baseObjectName := getEntryAttrAndName(baseObject)
-	if baseObject != baseDN && baseObjectAttr != "cn" {
+	if baseObject != cmdOpts.BaseDN && baseObjectAttr != "cn" {
 		diagMessage := fmt.Sprintf("wrong base object \"%s\": wrong dn", r.BaseObject())
 		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultInvalidDNSyntax)
 		res.SetDiagnosticMessage(diagMessage)
@@ -241,7 +241,10 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}
 
 	// get client's additional data
-	addData := m.Client.GetAddData().(additionalData)
+	addData := additionalData{}
+	if clientAddData := m.Client.GetAddData(); clientAddData != nil {
+		addData = clientAddData.(additionalData)
+	}
 
 	// non admin user allowed to search only over his entry
 	if !addData.acl.search && (baseObjectAttr != "cn" || (baseObjectAttr == "cn" && baseObjectName != addData.acl.bindEntry)) {
@@ -261,7 +264,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	// how much entries is left
 	left := simplePagedResultsControl.PageSize().Int()
 	if left == 0 {
-		left = 1 + len(entries.Users) + len(entries.Groups)
+		left = 1 + len(data.Users) + len(data.Groups)
 	}
 
 	// if domain processed -> go to users
@@ -270,8 +273,8 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}
 
 	// if baseObject == baseDN AND searchScope == {0, 2} -> add domain entry
-	if baseObject == baseDN && r.Scope() != ldap.SearchRequestScopeOneLevel && r.Scope() != ldap.SearchRequestScopeChildren {
-		ok, err := applySearchFilter(entries.Domain, r.Filter())
+	if baseObject == cmdOpts.BaseDN && r.Scope() != ldap.SearchRequestScopeOneLevel && r.Scope() != ldap.SearchRequestScopeChildren {
+		ok, err := applySearchFilter(data.Domain, r.Filter())
 		if err != nil {
 			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
 			res.SetDiagnosticMessage(err.Error())
@@ -285,7 +288,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			sizeLimitReached = true
 			goto end
 		} else if ok {
-			e := createSearchResultEntry(entries.Domain, r.Attributes(), baseDN)
+			e := createSearchResultEntry(data.Domain, r.Attributes(), cmdOpts.BaseDN)
 			w.Write(e)
 
 			addData.sc.sent++
@@ -303,7 +306,7 @@ users:
 		goto groups
 	}
 
-	for i := addData.sc.count; i < len(entries.Users); i++ {
+	for i := addData.sc.count; i < len(data.Users); i++ {
 		// handle stop signal
 		select {
 		case <-m.Done:
@@ -321,7 +324,7 @@ users:
 		}
 
 		// if entry not end with baseDN OR baseObject == entry AND (searchScope == 1 OR searchScope == 3) -> skip
-		entryName := fmt.Sprintf("cn=%s,%s", entries.Users[i].CN, baseDN)
+		entryName := fmt.Sprintf("cn=%s,%s", data.Users[i].CN, cmdOpts.BaseDN)
 		if !strings.HasSuffix(entryName, baseObject) || (entryName == baseObject &&
 			(r.Scope() == ldap.SearchRequestScopeOneLevel || r.Scope() == ldap.SearchRequestScopeChildren)) {
 			continue
@@ -334,7 +337,7 @@ users:
 		}
 
 		// apply search filter for each user
-		ok, err := applySearchFilter(entries.Users[i], r.Filter())
+		ok, err := applySearchFilter(data.Users[i], r.Filter())
 		if err != nil {
 			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
 			res.SetDiagnosticMessage(err.Error())
@@ -353,7 +356,7 @@ users:
 			goto end
 		}
 
-		e := createSearchResultEntry(entries.Users[i], r.Attributes(), entryName)
+		e := createSearchResultEntry(data.Users[i], r.Attributes(), entryName)
 		w.Write(e)
 
 		addData.sc.sent++
@@ -366,7 +369,7 @@ users:
 	addData.sc.usersDone = true
 
 groups:
-	for i := addData.sc.count; i < len(entries.Groups); i++ {
+	for i := addData.sc.count; i < len(data.Groups); i++ {
 		// handle stop signal
 		select {
 		case <-m.Done:
@@ -384,7 +387,7 @@ groups:
 		}
 
 		// if entry not end with baseDN OR baseObject == entry AND (searchScope == 1 OR searchScope == 3) -> skip
-		entryName := fmt.Sprintf("cn=%s,%s", entries.Groups[i].CN, baseDN)
+		entryName := fmt.Sprintf("cn=%s,%s", data.Groups[i].CN, cmdOpts.BaseDN)
 		if !strings.HasSuffix(entryName, baseObject) || entryName == baseObject &&
 			(r.Scope() == ldap.SearchRequestScopeOneLevel || r.Scope() == ldap.SearchRequestScopeChildren) {
 			continue
@@ -397,7 +400,7 @@ groups:
 		}
 
 		// apply search filter for each group
-		ok, err := applySearchFilter(entries.Groups[i], r.Filter())
+		ok, err := applySearchFilter(data.Groups[i], r.Filter())
 		if err != nil {
 			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
 			res.SetDiagnosticMessage(err.Error())
@@ -416,7 +419,7 @@ groups:
 			goto end
 		}
 
-		e := createSearchResultEntry(entries.Groups[i], r.Attributes(), entryName)
+		e := createSearchResultEntry(data.Groups[i], r.Attributes(), entryName)
 		w.Write(e)
 
 		addData.sc.sent++
@@ -477,9 +480,9 @@ end:
 }
 
 // handle compare
-func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-	entries.Mutex.RLock()
-	defer entries.Mutex.RUnlock()
+func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, data *entriesData) {
+	data.dataMu.RLock()
+	defer data.dataMu.RUnlock()
 
 	r := m.GetCompareRequest()
 	log.Printf("client [%d]: compare dn=\"%s\" attr=\"%s\"", m.Client.Numero(), r.Entry(), r.Ava().AttributeDesc())
@@ -488,7 +491,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	// TODO: change diag message
 	compareEntry := trimSpacesAfterComma(string(r.Entry()))
 	compareEntryAttr, compareEntryName := getEntryAttrAndName(compareEntry)
-	if !strings.HasSuffix(compareEntry, baseDN) || (compareEntry != baseDN && compareEntryAttr != "cn" && compareEntryAttr != "uid") {
+	if !strings.HasSuffix(compareEntry, cmdOpts.BaseDN) || (compareEntry != cmdOpts.BaseDN && compareEntryAttr != "cn" && compareEntryAttr != "uid") {
 		diagMessage := fmt.Sprintf("wrong dn \"%s\"", r.Entry())
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultInvalidDNSyntax)
 		res.SetDiagnosticMessage(diagMessage)
@@ -510,10 +513,13 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}
 
 	// get client's additional data
-	addData := m.Client.GetAddData().(additionalData)
+	addData := additionalData{}
+	if clientAddData := m.Client.GetAddData(); clientAddData != nil {
+		addData = clientAddData.(additionalData)
+	}
 
 	// requested compare on domain and user not ldap admin OR compare entry != bind entry and user not ldap admin
-	if (compareEntry == baseDN && !addData.acl.compare) || (addData.acl.bindEntry != compareEntryName && !addData.acl.compare) {
+	if (compareEntry == cmdOpts.BaseDN && !addData.acl.compare) || (addData.acl.bindEntry != compareEntryName && !addData.acl.compare) {
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultInsufficientAccessRights)
 		w.Write(res)
 
@@ -521,7 +527,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		return
 	}
 
-	if compareEntry == baseDN && doCompare(entries.Domain, string(r.Ava().AttributeDesc()), string(r.Ava().AssertionValue())) {
+	if compareEntry == cmdOpts.BaseDN && doCompare(data.Domain, string(r.Ava().AttributeDesc()), string(r.Ava().AssertionValue())) {
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareTrue)
 		w.Write(res)
 
@@ -530,7 +536,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 
 	}
 
-	for _, user := range entries.Users {
+	for _, user := range data.Users {
 		// handle stop signal
 		select {
 		case <-m.Done:
@@ -551,7 +557,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 			return
 		}
 	}
-	for _, group := range entries.Groups {
+	for _, group := range data.Groups {
 		// handle stop signal
 		select {
 		case <-m.Done:
@@ -580,9 +586,9 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 }
 
 // handle modify (only userPassword for now)
-func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-	entries.Mutex.RLock()
-	defer entries.Mutex.RUnlock()
+func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, data *entriesData) {
+	data.dataMu.RLock()
+	defer data.dataMu.RUnlock()
 
 	r := m.GetModifyRequest()
 	log.Printf("client [%d]: modify dn=\"%s\"", m.Client.Numero(), r.Object())
@@ -591,7 +597,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	// TODO: change diag message
 	modifyEntry := trimSpacesAfterComma(string(r.Object()))
 	modifyEntryAttr, modifyEntryName := getEntryAttrAndName(modifyEntry)
-	if !strings.HasSuffix(modifyEntry, baseDN) || (modifyEntryAttr != "cn" && modifyEntryAttr != "uid") {
+	if !strings.HasSuffix(modifyEntry, cmdOpts.BaseDN) || (modifyEntryAttr != "cn" && modifyEntryAttr != "uid") {
 		diagMessage := fmt.Sprintf("wrong dn \"%s\"", r.Object())
 		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultInvalidDNSyntax)
 		res.SetDiagnosticMessage(diagMessage)
@@ -602,7 +608,10 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	}
 
 	// get client's additional data
-	addData := m.Client.GetAddData().(additionalData)
+	addData := additionalData{}
+	if clientAddData := m.Client.GetAddData(); clientAddData != nil {
+		addData = clientAddData.(additionalData)
+	}
 
 	// ldap admin can do modify on all entries
 	if addData.acl.bindEntry != modifyEntryName && !addData.acl.modify {

@@ -26,9 +26,9 @@ type user struct {
 	HasSubordinates string   `json:"hasSubordinates" hidden:""`
 	ObjectClass     []string `json:"objectClass" lower:""`
 	CN              string   `json:"cn"`
-	UIDNumber       string   `json:"uidNumber"`
+	UIDNumber       uint     `json:"uidNumber"`
 	UserPassword    string   `json:"userPassword"`
-	GIDNumber       string   `json:"gidNumber"`
+	GIDNumber       uint     `json:"gidNumber"`
 	UID             string   `json:"uid"`
 	DisplayName     string   `json:"displayName"`
 	GivenName       string   `json:"givenName"`
@@ -45,7 +45,7 @@ type group struct {
 	HasSubordinates string   `json:"hasSubordinates" hidden:""`
 	ObjectClass     []string `json:"objectClass" lower:""`
 	CN              string   `json:"cn"`
-	GIDNumber       string   `json:"gidNumber"`
+	GIDNumber       uint     `json:"gidNumber"`
 	Description     string   `json:"description"`
 	OU              []string `json:"ou"`
 	MemberUID       []string `json:"memberUid"`

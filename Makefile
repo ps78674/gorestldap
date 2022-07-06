@@ -1,8 +1,21 @@
+SERVER_DIR=./example_server
+VENV_DIR=$(SERVER_DIR)/.venv
+
 VER=$(shell cat VERSION)
 LD_FLAGS='-s -w -X "main.versionString=$(VER)"'
 BUILD_DIR=./build
 INSTDIR=/usr/local/bin
 
+venv:
+	python -m venv $(VENV_DIR)
+	$(VENV_DIR)/bin/pip install -r $(SERVER_DIR)/requirements.txt
+server: venv
+	$(VENV_DIR)/bin/python $(SERVER_DIR)/manage.py migrate
+	$(VENV_DIR)/bin/python $(SERVER_DIR)/manage.py runserver
+clean_db:
+	rm -f $(SERVER_DIR)/db.sqlite3
+clean_server: clean_db
+	rm -rf $(VENV_DIR)
 clean: 
 	rm -rf $(BUILD_DIR)
 build: 

@@ -2,40 +2,45 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
+	"plugin"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/ps78674/docopt.go"
+	"github.com/ps78674/gorestldap/src/internal/data"
 	ldapserver "github.com/ps78674/ldapserver"
+	log "github.com/sirupsen/logrus"
 	"github.com/valyala/fasthttp"
+	"gopkg.in/yaml.v3"
 )
 
-const (
-	mainClientID   int = -1
-	signalClientID int = -2
-)
+type Config struct {
+	BackendName        string                 `docopt:"--backend"`
+	ConfigPath         string                 `docopt:"--config"`
+	BaseDN             string                 `docopt:"--basedn"`
+	ListenAddr         string                 `docopt:"--listen"`
+	UpdateInterval     time.Duration          `docopt:"--interval"`
+	LogPath            string                 `docopt:"--log"`
+	Debug              bool                   `docopt:"--debug"`
+	LogTimestamp       bool                   `yaml:"log_timestamp"`
+	LogCaller          bool                   `yaml:"log_caller"`
+	BackendDir         string                 `yaml:"backend_dir"`
+	Backends           map[string]interface{} `yaml:"backends"`
+	RespectCritical    bool                   `yaml:"respect_control_criticality"`
+	UseTLS             bool                   `yaml:"use_tls"`
+	ServerCert         string                 `yaml:"server_cert"`
+	ServerKey          string                 `yaml:"server_key"`
+	CallbackListenAddr string                 `yaml:"callback_listen_addr"`
+}
 
-var cmdOpts struct {
-	URL             string `docopt:"--url"`
-	ReqTimeout      int    `docopt:"--reqtimeout"`
-	File            string `docopt:"--file"`
-	BaseDN          string `docopt:"--basedn"`
-	BindAddress     string `docopt:"--addr"`
-	BindPort        int    `docopt:"--port"`
-	HTTPPort        int    `docopt:"--httpport"`
-	NoCallback      bool   `docopt:"--nocallback"`
-	UseTLS          bool   `docopt:"--tls"`
-	ServerCert      string `docopt:"--cert"`
-	ServerKey       string `docopt:"--key"`
-	LogFile         string `docopt:"--log"`
-	AuthToken       string `docopt:"--token"`
-	UpdateTimeout   int    `docopt:"--timeout"`
-	RespectCritical bool   `docopt:"--criticality"`
+type Backend interface {
+	ReadConfig([]byte) error
+	GetData() ([]data.User, []data.Group, error)
 }
 
 var (
@@ -43,78 +48,146 @@ var (
 	programName   = filepath.Base(os.Args[0])
 )
 
-var usage = fmt.Sprintf(`%[1]s: simple LDAP emulator with HTTP REST backend, support bind / search / compare operations
+var usage = fmt.Sprintf(`%[1]s: LDAP server with REST API & file backends
 
 Usage:
-  %[1]s [-u <URL> -b <BASEDN> -a <ADDRESS> -p <PORT> (-P <PORT>|--nocallback) -t <TOKEN> -T <SECONDS> -C -l <FILENAME> --reqtimeout <SECONDS> --tls --cert <CERT> --key <KEY>]
-  %[1]s [-f <FILE> -b <BASEDN> -a <ADDRESS> -p <PORT> -T <SECONDS> -C -l <FILENAME> --tls --cert <CERT> --key <KEY>]
+  %[1]s [-b <BACKEND> -c <CONFIGPATH> -B <BASEDN> -L <LISTENADDR> -I <INTERVAL> -l <LOGPATH> -d]
 
 Options:
-  -u, --url <URL>          rest api url [default: http://localhost/api]
-  -f, --file <FILE>        file with json data
-  -b, --basedn <BASEDN>    server base dn [default: dc=example,dc=org]
-  -a, --addr <ADDRESS>     server address [default: 0.0.0.0]
-  -p, --port <PORT>        server port [default: 389]
-  -P, --httpport <PORT>    http port (for callback) [default: 8080]
-  -t, --token <TOKEN>      rest authentication token (env: REST_AUTH_TOKEN)
-  -T, --timeout <SECONDS>  update REST data every <SECONDS>
-  -C, --criticality        respect requested control criticality
-  -l, --log <FILENAME>     log file path
-  --reqtimeout <SECONDS>   http request timeout [default: 10]
-  --nocallback             disable http callback [default: false]
-  --tls                    use tls [default: false]
-  --cert <CERT>            path to cert file / cert data (env: TLS_CERT)
-  --key <KEY>              path to key file / key data (env: TLS_KEY)
+  -b, --backend <BACKEND>    backend to use [default: rest, env: BACKEND]
+  -c, --config <CONFIGPATH>  config file path [default: config.yaml, env: CONFIG_PATH]
+  -B, --basedn <BASEDN>      server base dn [default: dc=example,dc=com, env: BASE_DN]
+  -L, --listen <LISTENADDR>  listen addr for LDAP [default: 0.0.0.0:389, env: LDAP_LISTEN_ADDR]
+  -I, --interval <INTERVAL>  data update interval [default: 300s, env: UPDATE_INTERVAL] 
+  -l, --log <LOGPATH>        log file path
+  -d, --debug                turn on debug logging [default: false] 
 
-  -h, --help               show this screen
-  -v, --version            show version
+  -h, --help                 show this screen
+  --version                  show version
 `, programName)
 
-func init() {
+func (c *Config) init() error {
+	// parse cli options
 	opts, err := docopt.ParseArgs(usage, nil, versionString)
 	if err != nil {
-		fmt.Printf("error parsing options: %s\n", err)
-		os.Exit(1)
+		return fmt.Errorf("error parsing options: %s\n", err)
 	}
 
-	if e := opts.Bind(&cmdOpts); e != nil {
-		fmt.Printf("error parsing options: %s\n", e)
-		os.Exit(1)
+	// bind args to config struct
+	if e := opts.Bind(&c); e != nil {
+		return fmt.Errorf("error binding option values: %s\n", e)
 	}
 
-	cmdOpts.URL = strings.ToLower(cmdOpts.URL)
-	cmdOpts.BaseDN = trimSpacesAfterComma(strings.ToLower(cmdOpts.BaseDN))
-
-	if cmdOpts.UseTLS {
-		if len(cmdOpts.ServerCert) == 0 {
-			cmdOpts.ServerCert = os.Getenv("TLS_CERT")
+	// read config from file
+	if len(c.ConfigPath) > 0 {
+		f, err := os.Open(c.ConfigPath)
+		if err != nil {
+			return fmt.Errorf("error opening config file: %s", err)
 		}
-		if len(cmdOpts.ServerKey) == 0 {
-			cmdOpts.ServerKey = os.Getenv("TLS_KEY")
+		defer f.Close()
+
+		decoder := yaml.NewDecoder(f)
+		if err = decoder.Decode(&c); err != nil {
+			return fmt.Errorf("error parsing config file: %s", err)
 		}
 	}
 
-	if len(cmdOpts.AuthToken) == 0 {
-		cmdOpts.AuthToken = os.Getenv("REST_AUTH_TOKEN")
-	}
+	// normalize baseDN
+	c.BaseDN = trimSpacesAfterComma(strings.ToLower(c.BaseDN))
+
+	return nil
 }
 
-func main() {
-	log.SetFlags(0)
+var cfg Config
 
-	if len(cmdOpts.LogFile) > 0 {
-		f, err := os.OpenFile(cmdOpts.LogFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+func main() {
+	// init config
+	// var cfg Config
+	if err := cfg.init(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	// set log output
+	if len(cfg.LogPath) > 0 {
+		f, err := os.OpenFile(cfg.LogPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 		if err != nil {
 			fmt.Printf("error opening logfile: %s\n", err)
 			os.Exit(1)
 		}
-
 		defer f.Close()
 		log.SetOutput(f)
-		log.SetFlags(log.LstdFlags)
 	}
 
-	entries := entriesData{Domain: dom}
+	// setup debug logging
+	if cfg.Debug {
+		log.SetLevel(log.DebugLevel)
+	}
+
+	// setup log format
+	var logFormatter log.TextFormatter
+	logFormatter.FullTimestamp = true
+	if !cfg.LogTimestamp {
+		logFormatter.DisableTimestamp = true
+	}
+	log.SetFormatter(&logFormatter)
+
+	// setup caller logging
+	log.SetReportCaller(cfg.LogCaller)
+
+	// open plugin
+	backendPath := path.Join(cfg.BackendDir, cfg.BackendName+".so")
+
+	log.Debugf("loading backend %s", backendPath)
+
+	p, err := plugin.Open(backendPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// lookup exported var
+	symBackend, err := p.Lookup("Backend")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// assert type
+	backend, ok := symBackend.(Backend)
+	if !ok {
+		log.Fatal("unexpected exported symbol type")
+	}
+
+	// marshall backend config
+	b, err := yaml.Marshal(cfg.Backends[cfg.BackendName])
+	if err != nil {
+		log.Fatalf("error marshalling backend config: %s", err)
+	}
+
+	// set plugin config
+	if err := backend.ReadConfig(b); err != nil {
+		log.Fatalf("error unmarshalling backend config: %s", err)
+	}
+
+	// get initial data
+	users, groups, err := backend.GetData()
+	if err != nil {
+		log.Fatalf("error getting data: %s", err)
+	}
+
+	// setup entries
+	var domain = data.Domain{
+		ObjectClass: []string{
+			"top",
+			"domain",
+		},
+		HasSubordinates: "TRUE",
+	}
+
+	entries := data.Entries{
+		Domain: domain,
+		Users:  users,
+		Groups: groups,
+	}
 
 	//Create a new LDAP Server
 	ldapServer := ldapserver.NewServer()
@@ -132,96 +205,83 @@ func main() {
 		handleCompare(w, m, &entries)
 	})
 
-	// modify supported only with url
-	for _, a := range os.Args {
-		switch a {
-		case "-u", "--url":
-			routes.Modify(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-				handleModify(w, m, &entries)
-			})
-		}
-	}
+	// // modify supported only with url
+	// for _, a := range os.Args {
+	// 	switch a {
+	// 	case "-u", "--url":
+	// 		routes.Modify(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
+	// 			handleModify(w, m, &entries, &backend)
+	// 		})
+	// 	}
+	// }
 
 	//Attach routes to server
 	ldapServer.Handle(routes)
 
 	// listen and serve
 	chErr := make(chan error)
-	listenOn := fmt.Sprintf("%s:%d", cmdOpts.BindAddress, cmdOpts.BindPort)
-	if !cmdOpts.UseTLS {
-		log.Printf("starting ldap server on '%s'", listenOn)
-		go ldapServer.ListenAndServe(listenOn, chErr)
+	if !cfg.UseTLS {
+		log.Infof("starting ldap server on '%s'", cfg.ListenAddr)
+		go ldapServer.ListenAndServe(cfg.ListenAddr, chErr)
 	} else {
-		log.Printf("starting ldaps server on '%s'", listenOn)
-		go ldapServer.ListenAndServeTLS(listenOn, cmdOpts.ServerCert, cmdOpts.ServerKey, chErr)
+		log.Infof("starting ldaps server on '%s'", cfg.ListenAddr)
+		go ldapServer.ListenAndServeTLS(cfg.ListenAddr, cfg.ServerCert, cfg.ServerKey, chErr)
 	}
 
 	if err := <-chErr; err != nil {
 		log.Fatalf("error starting server: %s", err)
 	}
 
-	if len(cmdOpts.File) > 0 {
-		cmdOpts.NoCallback = true
-	}
+	// create ticker
+	ticker := time.NewTicker(cfg.UpdateInterval)
+	defer ticker.Stop()
 
 	// http callback server
 	var httpServer fasthttp.Server
-	if !cmdOpts.NoCallback {
-		listenOn = fmt.Sprintf("%s:%d", cmdOpts.BindAddress, cmdOpts.HTTPPort)
-		log.Printf("starting http server on '%s'", listenOn)
+	if len(cfg.CallbackListenAddr) > 0 {
+		log.Infof("starting http server on '%s'", cfg.CallbackListenAddr)
 
 		httpServer.Handler = func(ctx *fasthttp.RequestCtx) {
-			handleCallback(ctx, &entries)
+			handleCallback(ctx, ticker)
 		}
 
 		go func() {
-			if err := httpServer.ListenAndServe(listenOn); err != nil {
+			if err := httpServer.ListenAndServe(cfg.CallbackListenAddr); err != nil {
 				log.Fatalf("http server error: %s", err)
 			}
 		}()
 	}
 
-	// update entries data
+	// update data every cfg.UpdateInterval
 	go func() {
-		// initial data load
-		// if error occurs -> increment sleep timeout by 1
-		// until sleep timeout == updateTimeout
-		var dur int
-		for {
-			log.Printf("client [%d]: updating entries data\n", mainClientID)
-			err := entries.update(callbackData{})
-			if err != nil {
-				log.Printf("client [%d]: error updating entries data: %s\n", mainClientID, err)
-				dur += 1
-				if dur == cmdOpts.UpdateTimeout {
-					break
-				}
-				time.Sleep(time.Duration(dur) * time.Second)
-			} else {
-				break
-			}
-		}
+		for range ticker.C {
+			log.Info("updating entries data")
 
-		// update data by ticker
-		// every N seconds
-		for range time.Tick(time.Duration(cmdOpts.UpdateTimeout) * time.Second) {
-			log.Printf("client [%d]: updating entries data\n", mainClientID)
-			if err := entries.update(callbackData{}); err != nil {
-				log.Printf("client [%d]: error updating entries data: %s\n", mainClientID, err)
+			log.Debug("getting backend data")
+			users, groups, err := backend.GetData()
+			if err != nil {
+				log.Errorf("error getting data: %s", err)
+				continue
 			}
+
+			log.Debug("updating entries")
+			entries.Lock()
+			entries.Users = users
+			entries.Groups = groups
+			entries.Unlock()
+			log.Debug("entries updated")
 		}
 	}()
 
-	// update data on SIGUSR1
+	// reset ticker / update data on SIGUSR1
 	go func() {
-		chUsr := make(chan os.Signal, 1)
+		sigusr1 := make(chan os.Signal, 1)
 		for {
-			signal.Notify(chUsr, syscall.SIGUSR1)
-			<-chUsr
-			log.Printf("client [%d]: updating entries data\n", signalClientID)
-			if err := entries.update(callbackData{}); err != nil {
-				log.Printf("client [%d]: error updating entries data: %s\n", signalClientID, err)
-			}
+			signal.Notify(sigusr1, syscall.SIGUSR1)
+			<-sigusr1
+			ticker.Reset(time.Millisecond)
+			<-ticker.C
+			ticker.Reset(cfg.UpdateInterval)
 		}
 	}()
 

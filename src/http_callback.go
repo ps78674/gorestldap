@@ -1,22 +1,21 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"log"
+	"time"
 
 	"github.com/valyala/fasthttp"
 )
 
-type callbackData struct {
-	Type       string
-	ID         int
-	RAWMessage string
-}
+// type callbackData struct {
+// 	Type       string
+// 	ID         int
+// 	RAWMessage string
+// }
 
-const httpClientID int = -3
+// const httpClientID int = -3
 
-func handleCallback(ctx *fasthttp.RequestCtx, data *entriesData) {
+func handleCallback(ctx *fasthttp.RequestCtx, ticker *time.Ticker) {
 	switch path := string(ctx.Path()); path {
 	case "/callback":
 		if !ctx.IsPost() {
@@ -31,21 +30,25 @@ func handleCallback(ctx *fasthttp.RequestCtx, data *entriesData) {
 			return
 		}
 
-		var postData callbackData
-		postBody := ctx.PostBody()
-		if err := json.Unmarshal(postBody, &postData); err != nil {
-			strMsg := fmt.Sprintf("wrong json %s\n", ctx.PostBody())
-			ctx.Error(strMsg, fasthttp.StatusBadRequest)
-			return
-		}
+		// TODO: check token or something ??
+		ticker.Reset(time.Millisecond)
+		<-ticker.C
+		ticker.Reset(cfg.UpdateInterval)
 
-		postData.RAWMessage = string(postBody)
-		log.Printf("client [%d]: updating entries data\n", httpClientID)
-		if err := data.update(postData); err != nil {
-			log.Printf("client [%d]: error updating entries data: %s\n", httpClientID, err)
-		}
+		// var postData callbackData
+		// postBody := ctx.PostBody()
+		// if err := json.Unmarshal(postBody, &postData); err != nil {
+		// 	strMsg := fmt.Sprintf("wrong json %s\n", ctx.PostBody())
+		// 	ctx.Error(strMsg, fasthttp.StatusBadRequest)
+		// 	return
+		// }
+
+		// postData.RAWMessage = string(postBody)
+		// log.Infof("client [%d]: updating entries data\n", httpClientID)
+		// // if err := data.update(postData); err != nil {
+		// // 	log.Errorf("client [%d]: error updating entries data: %s\n", httpClientID, err)
+		// // }
 	default:
-		strErr := fmt.Sprintf("unsupported path '%s'\n", path)
-		ctx.Error(strErr, fasthttp.StatusNotFound)
+		ctx.Redirect("/callback", fasthttp.StatusMovedPermanently)
 	}
 }

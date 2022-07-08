@@ -1,2 +1,3 @@
-gorestldap
 build/
+**/gorestldap
+**/*.so

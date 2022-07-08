@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -31,8 +29,8 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 
 		rValue := reflect.ValueOf(o)
 		for i := 0; i < rValue.Type().NumField(); i++ {
-			if attrName == "entrydn" && strings.HasSuffix(attrValue, cmdOpts.BaseDN) {
-				newValues := strings.SplitN(strings.TrimSuffix(attrValue, ","+cmdOpts.BaseDN), "=", 2)
+			if attrName == "entrydn" && strings.HasSuffix(attrValue, cfg.BaseDN) {
+				newValues := strings.SplitN(strings.TrimSuffix(attrValue, ","+cfg.BaseDN), "=", 2)
 				attrName = newValues[0]
 				attrValue = newValues[1]
 			}
@@ -207,20 +205,20 @@ func trimSpacesAfterComma(s string) string {
 
 // modify password via api
 func doModify(cn string, pw string) error {
-	b, err := json.Marshal(passwordData{CN: cn, UserPassword: pw})
-	if err != nil {
-		return err
-	}
+	// b, err := json.Marshal(passwordData{CN: cn, UserPassword: pw})
+	// if err != nil {
+	// 	return err
+	// }
 
-	reqURL := fmt.Sprintf("%s%s", cmdOpts.URL, urlLDAPUsers)
-	nb, err := doRequest(reqURL, b)
-	if err != nil {
-		return err
-	}
+	// reqURL := fmt.Sprintf("%s%s", cfg.URL, urlLDAPUsers)
+	// nb, err := doRequest(reqURL, b)
+	// if err != nil {
+	// 	return err
+	// }
 
-	if !bytes.Equal(b, nb) {
-		return fmt.Errorf("%s", nb)
-	}
+	// if !bytes.Equal(b, nb) {
+	// 	return fmt.Errorf("%s", nb)
+	// }
 
 	return nil
 }
@@ -303,7 +301,7 @@ func createSearchResultEntry(o interface{}, attrs ldap.AttributeSelection, entry
 }
 
 func getEntryAttrAndName(e string) (attr string, name string) {
-	trimmed := strings.TrimSuffix(e, ","+cmdOpts.BaseDN)
+	trimmed := strings.TrimSuffix(e, ","+cfg.BaseDN)
 
 	// entry == baseDN
 	if trimmed == e {

@@ -1,0 +1,23 @@
+log_timestamp: false
+log_caller: false
+
+backend_dir: ./
+
+backends:
+  rest:
+    url: http://localhost:8000/api
+    users_path: /ldap/user
+    groups_path: /ldap/group
+    auth_token: c9a6ca39bf7c83e68566cbc5b94aa7eb2d78da54
+    http_request_timeout: 30s
+  file:
+    users_path: users.json
+    groups_path: groups.json
+
+respect_control_criticality: true
+
+use_tls: false
+server_cert: server.crt
+server_key: server.key
+
+callback_listen_addr: localhost:8080

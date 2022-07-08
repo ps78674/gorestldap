@@ -6,7 +6,7 @@ class UserSerializer(serializers.BaseSerializer):
         ret = dict()
         ret['ldapAdmin'] = instance.ldap_admin
         ret['entryUUID'] = instance.entry_uuid
-        ret['hasSubordinates']: 'FALSE'
+        ret['hasSubordinates'] = 'FALSE'
         ret['objectClass'] = [
             'top',
             'posixAccount',
@@ -35,7 +35,7 @@ class GroupSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         ret = dict()
         ret['entryUUID'] = instance.entry_uuid
-        ret['hasSubordinates']: 'FALSE'
+        ret['hasSubordinates'] = 'FALSE'
         ret['objectClass'] = [
             'top',
             'posixGroup'

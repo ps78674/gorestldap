@@ -7,11 +7,15 @@ class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAdminUser]
-    http_method_names = ['get']
+    http_method_names = ['get', 'put']
+    lookup_field = 'username'
+    lookup_value_regex = r'[0-9a-z\-\_\.]+'
 
 
 class GroupViewSet(viewsets.ModelViewSet):
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
     permission_classes = [permissions.IsAdminUser]
-    http_method_names = ['get']
+    http_method_names = ['get', 'put']
+    lookup_field = 'name'
+    lookup_value_regex = r'[0-9a-z\-\_\.]+'

@@ -2,12 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.models import Group as ContribGroup
 from django.contrib.auth.admin import UserAdmin as ContribUserAdmin, GroupAdmin as ContribGroupAdmin
 from django.utils.translation import gettext_lazy as _
-from .models import User, Group, OU
-
-
-@admin.register(OU)
-class OUAdmin(admin.ModelAdmin):
-    pass
+from .models import User, Group
 
 
 class UserAdmin(ContribUserAdmin):
@@ -33,7 +28,7 @@ class UserAdmin(ContribUserAdmin):
 
 class GroupAdmin(ContribGroupAdmin):
     fieldsets = (
-        (None, {'fields': ('name', 'gid_number', 'ou', 'permissions')}),
+        (None, {'fields': ('name', 'gid_number', 'description', 'permissions')}),
     )
 
 

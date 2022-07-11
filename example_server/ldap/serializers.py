@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, Group, OU
+from .models import User, Group
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -72,7 +72,6 @@ class GroupSerializer(serializers.ModelSerializer):
     cn = serializers.CharField(source='name')
     gidNumber = serializers.IntegerField(source='gid_number')
     description = serializers.CharField()
-    ou = serializers.SlugRelatedField(slug_field='name', queryset=OU.objects.all())
     memberUid = serializers.SlugRelatedField(source='user_set', slug_field='username', queryset=User.objects.all(), many=True)
 
     class Meta:
@@ -84,7 +83,6 @@ class GroupSerializer(serializers.ModelSerializer):
             'cn',
             'gidNumber',
             'description',
-            'ou',
             'memberUid'
         ]
 
@@ -97,8 +95,3 @@ class GroupSerializer(serializers.ModelSerializer):
             'posixGroup'
         ]
         return object_classes
-
-    def to_representation(self, instance):
-        ret = super().to_representation(instance)
-        ret['ou'] = [instance.ou.name]
-        return ret

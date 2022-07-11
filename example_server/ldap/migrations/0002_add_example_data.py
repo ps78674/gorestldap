@@ -2,11 +2,9 @@ from django.db import migrations
 from django.contrib.auth.hashers import make_password
 from rest_framework.authtoken.models import Token
 
-from ..models import OU, Group, User
+from ..models import Group, User
 from ..utils import gen_ssha_hash
 
-
-OU_NAME = 'ou'
 
 USER_DATA = {
     'name': 'admin',
@@ -35,12 +33,9 @@ GROUPS_DATA = [
 
 
 def fill_data(*args, **kwargs):
-    ou = OU.objects.create(name=OU_NAME)
-
     pgroup = Group.objects.create(
         name = PRIMARY_GROUP_DATA['name'],
         gid_number = PRIMARY_GROUP_DATA['gid_number'],
-        ou = ou
     )
 
     pw = make_password(USER_DATA['password'])
@@ -64,8 +59,7 @@ def fill_data(*args, **kwargs):
     for g in GROUPS_DATA:
         group = Group.objects.create(
             name = g['name'],
-            gid_number = g['gid_number'],
-            ou = ou
+            gid_number = g['gid_number']
         )
 
         user.groups.add(group)

@@ -24,17 +24,9 @@ class User(AbstractUser):
 class Group(ContribGroup):
     entry_uuid = models.CharField(max_length=128, unique=True, blank=False, null=False)
     gid_number = models.PositiveIntegerField(unique=True, blank=False, null=False, verbose_name='GID number')
-    ou = models.ForeignKey('ldap.OU', blank=True, null=True, on_delete=models.SET_NULL, verbose_name='Organizational Unit')
     description = models.CharField(max_length=128, unique=False, blank=True, null=True)
 
     def save(self, *args, **kwargs):
         if len(self.entry_uuid) == 0:
             self.entry_uuid = gen_entry_uuid(self.name)
         return super().save(*args, **kwargs)
-
-
-class OU(models.Model):
-    name = models.CharField(max_length=32, unique=True)
-
-    def __str__(self):
-        return self.name

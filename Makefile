@@ -18,20 +18,22 @@ clean_server: clean_db
 	rm -rf $(VENV_DIR)
 clean: 
 	rm -rf $(BUILD_DIR)
+	rm -f gorestldap.tar.gz
 build: 
 	mkdir $(BUILD_DIR)
-	go build -trimpath -ldflags=$(LD_FLAGS) -buildmode=plugin -o $(BUILD_DIR)/file.so plugins/file/main.go
-	go build -trimpath -ldflags=$(LD_FLAGS) -buildmode=plugin -o $(BUILD_DIR)/null.so plugins/null/main.go
-	go build -trimpath -ldflags=$(LD_FLAGS) -buildmode=plugin -o $(BUILD_DIR)/rest.so plugins/rest/main.go
+	go build -trimpath -ldflags=$(LD_FLAGS) -buildmode=plugin -o $(BUILD_DIR)/backends/file.so src/plugins/file/main.go
+	go build -trimpath -ldflags=$(LD_FLAGS) -buildmode=plugin -o $(BUILD_DIR)/backends/null.so src/plugins/null/main.go
+	go build -trimpath -ldflags=$(LD_FLAGS) -buildmode=plugin -o $(BUILD_DIR)/backends/rest.so src/plugins/rest/main.go
 	go build -trimpath -ldflags=$(LD_FLAGS) -o $(BUILD_DIR)/gorestldap ./src
 	install -m 644 config.yaml $(BUILD_DIR)
 install: build
 	test -d $(INSTDIR) || mkdir -p $(INSTDIR)
-	install -d $(INSTDIR)
-	install -m 644 $(BUILD_DIR)/file.so $(INSTDIR)
-	install -m 644 $(BUILD_DIR)/null.so $(INSTDIR)
-	install -m 644 $(BUILD_DIR)/rest.so $(INSTDIR)
+	install -d $(INSTDIR)/backends/
+	install -m 644 $(BUILD_DIR)/backends/file.so $(INSTDIR)/backends/
+	install -m 644 $(BUILD_DIR)/backends/null.so $(INSTDIR)/backends/
+	install -m 644 $(BUILD_DIR)/backends/rest.so $(INSTDIR)/backends/
 	install -m 755 $(BUILD_DIR)/gorestldap $(INSTDIR)
+	install -m 644 $(BUILD_DIR)/config.yaml $(INSTDIR)
 tar: build
 	tar cfz gorestldap.tar.gz build --transform 's/build/gorestldap/'
 

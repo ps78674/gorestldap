@@ -1,14 +1,13 @@
 [Unit]
-Description=LDAP server for REST API
+Description=LDAP server with REST API & file backends
 After=network.target
 
 [Service]
-User=htsts
-Group=htsts
-ExecStart=/local/daemon/bin/gorestldap -p 10389 -u https://localhost/api -b dc=example,dc=org -T 300
+# User=root
+# Group=root
+ExecStart=/opt/gorestldap/gorestldap -c config.yaml -b rest -L 0.0.0.0:10389 -B dc=example,dc=com -I 300s
 ExecReload=/bin/kill -SIGUSR1 $MAINPID
 Restart=on-failure
-#Environment=REST_AUTH_TOKEN=<AUTH_TOKEN>
 
 [Install]
 WantedBy=multi-user.target

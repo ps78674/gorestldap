@@ -1,3 +1,5 @@
+.vscode
 build/
 **/gorestldap
 **/*.so
+**/gorestldap.tar.gz

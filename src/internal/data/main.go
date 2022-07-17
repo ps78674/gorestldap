@@ -5,12 +5,13 @@ import "sync"
 type Domain struct {
 	ObjectClass     []string `json:"objectClass"`
 	HasSubordinates string   `json:"hasSubordinates" ldap_operational:""`
+	DC              string   `ldap_skip:""`
 }
 
 type OU struct {
 	ObjectClass     []string `json:"objectClass"`
 	HasSubordinates string   `json:"hasSubordinates" ldap_operational:""`
-	Name            string   `ldap_skip:""`
+	OU              string   `ldap_skip:""`
 }
 
 type User struct {
@@ -20,7 +21,7 @@ type User struct {
 	ObjectClass     []string `json:"objectClass"`
 	CN              string   `json:"cn"`
 	UIDNumber       uint     `json:"uidNumber"`
-	UserPassword    string   `json:"userPassword" ldap_compare_cs:""`
+	UserPassword    string   `json:"userPassword" ldap_case_sensitive_value_value:""`
 	GIDNumber       uint     `json:"gidNumber"`
 	UID             string   `json:"uid"`
 	DisplayName     string   `json:"displayName"`

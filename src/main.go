@@ -193,12 +193,14 @@ func main() {
 	}
 
 	// setup entries
+	_, dc := getEntryAttrAndName(cfg.BaseDN)
 	var domain = data.Domain{
 		ObjectClass: []string{
 			"top",
 			"domain",
 		},
 		HasSubordinates: "TRUE",
+		DC:              dc,
 	}
 
 	var ous = []data.OU{
@@ -208,7 +210,7 @@ func main() {
 				"organizationalUnit",
 			},
 			HasSubordinates: "TRUE",
-			Name:            cfg.UsersOUName,
+			OU:              cfg.UsersOUName,
 		},
 		data.OU{
 			ObjectClass: []string{
@@ -216,7 +218,7 @@ func main() {
 				"organizationalUnit",
 			},
 			HasSubordinates: "TRUE",
-			Name:            cfg.GroupsOUName,
+			OU:              cfg.GroupsOUName,
 		},
 	}
 

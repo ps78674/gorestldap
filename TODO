@@ -1,7 +1,6 @@
-// 1.
-// fix ToLower in applyFilter
-// fix tag lookup
-//
-// 2. fix compare
-// 3. fix modify
-// 4. ........
++ refactor applySearchFilter() - tags, ToLower | EqualFold
+refactor doCompare() - - tags, ToLower | EqualFold
+fix callback - simple post on listen/callback with header Authorization: Token 12345
+fix modify - backends should support updating data | return modify err
+fix tags lookups - ldap_skip, ldap_case_sensitive_value -> `ldap:"skip,case_sensitive"`
+add debug logs

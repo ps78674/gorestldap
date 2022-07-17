@@ -331,7 +331,7 @@ ous:
 			searchControl.count++
 		}
 
-		entryName := fmt.Sprintf("ou=%s,%s", entries.OUs[i].Name, cfg.BaseDN)
+		entryName := fmt.Sprintf("ou=%s,%s", entries.OUs[i].OU, cfg.BaseDN)
 
 		// entry does not belong to base object
 		if !strings.HasSuffix(entryName, baseObject) {
@@ -346,7 +346,7 @@ ous:
 		// search sublevel based on ou name (users or groups)
 		if entryName == baseObject && (r.Scope() == ldap.SearchRequestScopeOneLevel || r.Scope() == ldap.SearchRequestScopeChildren) {
 			searchControl.count = 0
-			switch entries.OUs[i].Name {
+			switch entries.OUs[i].OU {
 			case cfg.UsersOUName:
 				searchControl.groupsDone = true
 				goto users
@@ -688,7 +688,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 			default:
 			}
 
-			if ou.Name != compareEntryName {
+			if ou.OU != compareEntryName {
 				continue
 			}
 

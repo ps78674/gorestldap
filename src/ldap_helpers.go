@@ -148,32 +148,29 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 
 // actual compare
 func doCompare(o interface{}, attrName string, attrValue string) bool {
-	attrName = strings.ToLower(attrName)
-
 	rValue := reflect.ValueOf(o)
 	for i := 0; i < rValue.Type().NumField(); i++ {
-		if strings.ToLower(rValue.Type().Field(i).Name) != attrName {
+		if !strings.EqualFold(rValue.Type().Field(i).Name, attrName) {
 			continue
 		}
 		switch rValue.Field(i).Interface().(type) {
 		case string:
-			// compare values case insensitive for all attrs except userPassword
-			restValue := rValue.Field(i).String()
-			if attrName != "userpassword" {
-				restValue = strings.ToLower(restValue)
+			objValue := rValue.Field(i).String()
+			if _, ok := rValue.Type().Field(i).Tag.Lookup("ldap_compare_cs"); !ok {
+				objValue = strings.ToLower(objValue)
 				attrValue = strings.ToLower(attrValue)
 			}
-			if restValue == attrValue {
+			if objValue == attrValue {
 				return true
 			}
 		case []string:
 			for j := 0; j < rValue.Field(i).Len(); j++ {
-				restValue := rValue.Field(i).Index(j).String()
-				if _, ok := rValue.Type().Field(i).Tag.Lookup("lower"); ok {
+				objValue := rValue.Field(i).Index(j).String()
+				if _, ok := rValue.Type().Field(i).Tag.Lookup("ldap_compare_cs"); !ok {
+					objValue = strings.ToLower(objValue)
 					attrValue = strings.ToLower(attrValue)
-					restValue = strings.ToLower(restValue)
 				}
-				if restValue == attrValue {
+				if objValue == attrValue {
 					return true
 				}
 			}
@@ -197,8 +194,10 @@ func newLDAPAttributeValues(in interface{}) (out []ldap.AttributeValue) {
 	return
 }
 
-// trim spaces for entries (dc=test, dc.example,  dc=org -> dc=test,dc.example,dc=org)
-func trimSpacesAfterComma(s string) string {
+// normalizeEntry returns entry in lowercase without spaces after comma
+// e.g. DC=test, dc=EXAMPLE,  dc=com -> dc=test,dc=example,dc=com
+func normalizeEntry(s string) string {
+	s = strings.ToLower(s)
 	re := regexp.MustCompile(`(,[\s]+)`)
 	return re.ReplaceAllString(s, ",")
 }
@@ -227,10 +226,10 @@ func doModify(cn string, pw string) error {
 func getAllAttrsAndValues(o interface{}, operationalOnly bool) (ret []attrValues) {
 	rValue := reflect.ValueOf(o)
 	for i := 0; i < rValue.NumField(); i++ {
-		if _, ok := rValue.Type().Field(i).Tag.Lookup("skip"); ok {
+		if _, ok := rValue.Type().Field(i).Tag.Lookup("ldap_skip"); ok {
 			continue
 		}
-		if _, ok := rValue.Type().Field(i).Tag.Lookup("hidden"); (!ok && operationalOnly) || (ok && !operationalOnly) {
+		if _, ok := rValue.Type().Field(i).Tag.Lookup("ldap_operational"); (!ok && operationalOnly) || (ok && !operationalOnly) {
 			continue
 		}
 
@@ -248,15 +247,14 @@ func getAllAttrsAndValues(o interface{}, operationalOnly bool) (ret []attrValues
 }
 
 // get struct field values by field name
-func getAttrValues(o interface{}, fieldName string) (len int, values interface{}) {
-	field, _ := reflect.TypeOf(o).FieldByNameFunc(func(n string) bool { return strings.ToLower(n) == fieldName })
-	if field.Tag.Get("skip") == "yes" {
+func getAttrValues(o interface{}, fieldName string) (values interface{}) {
+	field, _ := reflect.TypeOf(o).FieldByNameFunc(func(n string) bool { return strings.EqualFold(n, fieldName) })
+	if _, ok := field.Tag.Lookup("ldap_skip"); ok {
 		return
 	}
 
 	rValue := reflect.ValueOf(o).FieldByName(field.Name)
 	if rValue.IsValid() {
-		len = rValue.Len()
 		values = rValue.Interface()
 	}
 
@@ -289,8 +287,8 @@ func createSearchResultEntry(o interface{}, attrs ldap.AttributeSelection, entry
 					e.AddAttribute(ldap.AttributeDescription(v.Attr), newLDAPAttributeValues(v.Values)...)
 				}
 			default:
-				len, values := getAttrValues(o, attr)
-				if len > 0 {
+				values := getAttrValues(o, attr)
+				if values != nil {
 					e.AddAttribute(ldap.AttributeDescription(a), newLDAPAttributeValues(values)...)
 				}
 			}
@@ -301,14 +299,9 @@ func createSearchResultEntry(o interface{}, attrs ldap.AttributeSelection, entry
 }
 
 func getEntryAttrAndName(e string) (attr string, name string) {
-	trimmed := strings.TrimSuffix(e, ","+cfg.BaseDN)
+	str := strings.SplitN(e, ",", 2)[0]
 
-	// entry == baseDN
-	if trimmed == e {
-		return
-	}
-
-	splitted := strings.SplitN(trimmed, "=", 2)
+	splitted := strings.SplitN(str, "=", 2)
 	attr = splitted[0]
 	name = splitted[1]
 

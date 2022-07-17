@@ -20,8 +20,8 @@ import (
 )
 
 type Config struct {
-	BackendName        string                 `docopt:"--backend"`
 	ConfigPath         string                 `docopt:"--config"`
+	BackendName        string                 `docopt:"--backend"`
 	BaseDN             string                 `docopt:"--basedn"`
 	ListenAddr         string                 `docopt:"--listen"`
 	UpdateInterval     time.Duration          `docopt:"--interval"`
@@ -32,6 +32,8 @@ type Config struct {
 	BackendDir         string                 `yaml:"backend_dir"`
 	Backends           map[string]interface{} `yaml:"backends"`
 	RespectCritical    bool                   `yaml:"respect_control_criticality"`
+	UsersOUName        string                 `yaml:"users_ou_name"`
+	GroupsOUName       string                 `yaml:"groups_ou_name"`
 	UseTLS             bool                   `yaml:"use_tls"`
 	ServerCert         string                 `yaml:"server_cert"`
 	ServerKey          string                 `yaml:"server_key"`
@@ -42,6 +44,11 @@ type Backend interface {
 	ReadConfig([]byte) error
 	GetData() ([]data.User, []data.Group, error)
 }
+
+const (
+	defaultUsersOUName  = "users"
+	defaultGroupsOUName = "groups"
+)
 
 var (
 	versionString = "devel"
@@ -54,8 +61,8 @@ Usage:
   %[1]s [-b <BACKEND> -c <CONFIGPATH> -B <BASEDN> -L <LISTENADDR> -I <INTERVAL> -l <LOGPATH> -d]
 
 Options:
-  -b, --backend <BACKEND>    backend to use [default: rest, env: BACKEND]
   -c, --config <CONFIGPATH>  config file path [default: config.yaml, env: CONFIG_PATH]
+  -b, --backend <BACKEND>    backend to use [default: rest, env: BACKEND]
   -B, --basedn <BASEDN>      server base dn [default: dc=example,dc=com, env: BASE_DN]
   -L, --listen <LISTENADDR>  listen addr for LDAP [default: 0.0.0.0:389, env: LDAP_LISTEN_ADDR]
   -I, --interval <INTERVAL>  data update interval [default: 300s, env: UPDATE_INTERVAL] 
@@ -92,8 +99,19 @@ func (c *Config) init() error {
 		}
 	}
 
+	if len(cfg.UsersOUName) == 0 {
+		cfg.UsersOUName = defaultUsersOUName
+	}
+
+	if len(cfg.GroupsOUName) == 0 {
+		cfg.GroupsOUName = defaultGroupsOUName
+	}
+
 	// normalize baseDN
-	c.BaseDN = trimSpacesAfterComma(strings.ToLower(c.BaseDN))
+	c.BaseDN = normalizeEntry(c.BaseDN)
+
+	c.UsersOUName = strings.ToLower(c.UsersOUName)
+	c.GroupsOUName = strings.ToLower(c.GroupsOUName)
 
 	return nil
 }
@@ -183,8 +201,28 @@ func main() {
 		HasSubordinates: "TRUE",
 	}
 
+	var ous = []data.OU{
+		data.OU{
+			ObjectClass: []string{
+				"top",
+				"organizationalUnit",
+			},
+			HasSubordinates: "TRUE",
+			Name:            cfg.UsersOUName,
+		},
+		data.OU{
+			ObjectClass: []string{
+				"top",
+				"organizationalUnit",
+			},
+			HasSubordinates: "TRUE",
+			Name:            cfg.GroupsOUName,
+		},
+	}
+
 	entries := data.Entries{
 		Domain: domain,
+		OUs:    ous,
 		Users:  users,
 		Groups: groups,
 	}

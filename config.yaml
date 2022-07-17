@@ -8,13 +8,16 @@ backends:
     url: http://localhost:8000/api
     users_path: /ldap/user
     groups_path: /ldap/group
-    auth_token: c9a6ca39bf7c83e68566cbc5b94aa7eb2d78da54
+    auth_token: 42a698e62cdd10356ff735a24ea2d6854fe910fe
     http_request_timeout: 30s
   file:
     users_path: users.json
     groups_path: groups.json
 
 respect_control_criticality: true
+
+users_ou_name: users
+groups_ou_name: groups
 
 use_tls: false
 server_cert: server.crt

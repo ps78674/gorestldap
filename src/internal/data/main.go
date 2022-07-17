@@ -4,17 +4,23 @@ import "sync"
 
 type Domain struct {
 	ObjectClass     []string `json:"objectClass"`
-	HasSubordinates string   `json:"hasSubordinates" hidden:""`
+	HasSubordinates string   `json:"hasSubordinates" ldap_operational:""`
+}
+
+type OU struct {
+	ObjectClass     []string `json:"objectClass"`
+	HasSubordinates string   `json:"hasSubordinates" ldap_operational:""`
+	Name            string   `ldap_skip:""`
 }
 
 type User struct {
-	LDAPAdmin       bool     `json:"ldapAdmin" skip:""`
-	EntryUUID       string   `json:"entryUUID" hidden:""`
-	HasSubordinates string   `json:"hasSubordinates" hidden:""`
-	ObjectClass     []string `json:"objectClass" lower:""`
+	LDAPAdmin       bool     `json:"ldapAdmin" ldap_skip:""`
+	EntryUUID       string   `json:"entryUUID" ldap_operational:""`
+	HasSubordinates string   `json:"hasSubordinates" ldap_operational:""`
+	ObjectClass     []string `json:"objectClass"`
 	CN              string   `json:"cn"`
 	UIDNumber       uint     `json:"uidNumber"`
-	UserPassword    string   `json:"userPassword"`
+	UserPassword    string   `json:"userPassword" ldap_compare_cs:""`
 	GIDNumber       uint     `json:"gidNumber"`
 	UID             string   `json:"uid"`
 	DisplayName     string   `json:"displayName"`
@@ -27,18 +33,18 @@ type User struct {
 }
 
 type Group struct {
-	EntryUUID       string   `json:"entryUUID" hidden:""`
-	HasSubordinates string   `json:"hasSubordinates" hidden:""`
-	ObjectClass     []string `json:"objectClass" lower:""`
+	EntryUUID       string   `json:"entryUUID" ldap_operational:""`
+	HasSubordinates string   `json:"hasSubordinates" ldap_operational:""`
+	ObjectClass     []string `json:"objectClass"`
 	CN              string   `json:"cn"`
 	GIDNumber       uint     `json:"gidNumber"`
 	Description     string   `json:"description"`
-	OU              []string `json:"ou"`
 	MemberUID       []string `json:"memberUid"`
 }
 
 type Entries struct {
 	Domain Domain
+	OUs    []OU
 	Users  []User
 	Groups []Group
 	sync.RWMutex

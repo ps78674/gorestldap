@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
 	ldap "github.com/ps78674/goldap/message"
@@ -17,8 +18,9 @@ type clientACL struct {
 	modify    bool
 }
 
-type searchControl struct {
+type clientSearchControl struct {
 	domainDone bool
+	ousDone    bool
 	usersDone  bool
 	groupsDone bool
 	count      int
@@ -27,7 +29,7 @@ type searchControl struct {
 
 type additionalData struct {
 	acl clientACL
-	sc  searchControl
+	sc  clientSearchControl
 }
 
 // handle bind
@@ -49,11 +51,12 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *dat
 		return
 	}
 
-	// entry must look like cn=<COMMON_NAME>,dc=base,dc=dn or uid=<COMMON_NAME>,dc=base,dc=dn
-	// TODO: change diag message
-	bindEntry := trimSpacesAfterComma(string(r.Name()))
+	bindEntry := normalizeEntry(string(r.Name()))
 	bindEntryAttr, bindEntryName := getEntryAttrAndName(bindEntry)
-	if !strings.HasSuffix(bindEntry, cfg.BaseDN) || (bindEntryAttr != "cn" && bindEntryAttr != "uid") {
+	entrySuffix := "ou=" + cfg.UsersOUName + "," + cfg.BaseDN
+
+	// entry must have proper suffix & attr must be cn || uid
+	if !strings.HasSuffix(bindEntry, entrySuffix) || (bindEntryAttr != "cn" && bindEntryAttr != "uid") {
 		diagMessage := fmt.Sprintf("wrong dn \"%s\"", r.Name())
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidDNSyntax)
 		res.SetDiagnosticMessage(diagMessage)
@@ -63,17 +66,24 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *dat
 		return
 	}
 
+	// get user
 	userData := data.User{}
 	for _, u := range entries.Users {
-		// compare in lowercase makes bind dn case insensitive
-		if strings.EqualFold(u.CN, bindEntryName) {
+		var cmpValue string
+
+		v := getAttrValues(u, bindEntryAttr)
+		if v != nil {
+			cmpValue = v.(string)
+		}
+
+		if strings.EqualFold(cmpValue, bindEntryName) {
 			userData = u
 			break
 		}
 	}
 
-	// user not found
-	if len(userData.CN) == 0 {
+	// got empty struct -> user not found
+	if reflect.DeepEqual(userData, data.User{}) {
 		diagMessage := fmt.Sprintf("dn \"%s\" not found", r.Name())
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
 		res.SetDiagnosticMessage(diagMessage)
@@ -83,17 +93,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *dat
 		return
 	}
 
-	// empty password in API
-	if len(userData.UserPassword) == 0 {
-		diagMessage := fmt.Sprintf("got empty password from API for dn \"%s\"", r.Name())
-		res := ldapserver.NewBindResponse(ldapserver.LDAPResultUnwillingToPerform)
-		res.SetDiagnosticMessage(diagMessage)
-		w.Write(res)
-
-		log.Errorf("client [%d]: bind error: %s", m.Client.Numero(), diagMessage)
-		return
-	}
-
+	// validate password
 	ok, err := validatePassword(r.AuthenticationSimple().String(), userData.UserPassword)
 	if !ok {
 		diagMessage := fmt.Sprintf("wrong password for dn \"%s\"", r.Name())
@@ -110,10 +110,10 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *dat
 		return
 	}
 
+	// set ACLs
 	acl := clientACL{
-		bindEntry: userData.CN,
+		bindEntry: bindEntry,
 	}
-
 	if userData.LDAPAdmin {
 		acl = clientACL{
 			search:  true,
@@ -122,12 +122,8 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *dat
 		}
 	}
 
-	addData := additionalData{
-		acl: acl,
-	}
-
 	// update additional data with created ACLs
-	m.Client.SetAddData(addData)
+	m.Client.SetAddData(additionalData{acl: acl})
 
 	res := ldapserver.NewBindResponse(ldapserver.LDAPResultSuccess)
 	w.Write(res)
@@ -227,32 +223,28 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	default:
 	}
 
-	// base object must be dc=base,dc=dn or cn=<COMMON_NAME>,dc=base,dc=dn
-	// TODO: change diag message
-	baseObject := trimSpacesAfterComma(string(r.BaseObject()))
-	baseObjectAttr, baseObjectName := getEntryAttrAndName(baseObject)
-	if baseObject != cfg.BaseDN && baseObjectAttr != "cn" {
-		diagMessage := fmt.Sprintf("wrong base object \"%s\": wrong dn", r.BaseObject())
-		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultInvalidDNSyntax)
-		res.SetDiagnosticMessage(diagMessage)
-		w.Write(res)
-
-		log.Errorf("client [%d]: search error: %s", m.Client.Numero(), diagMessage)
-		return
+	// setup baseObject
+	var baseObject string
+	if len(r.BaseObject()) == 0 {
+		baseObject = cfg.BaseDN
+	} else {
+		baseObject = normalizeEntry(string(r.BaseObject()))
 	}
 
-	// get client's additional data
-	addData := additionalData{}
-	if clientAddData := m.Client.GetAddData(); clientAddData != nil {
-		addData = clientAddData.(additionalData)
+	// get ACLs & search control
+	acl := clientACL{}
+	searchControl := clientSearchControl{}
+	if addData := m.Client.GetAddData(); addData != nil {
+		acl = addData.(additionalData).acl
+		searchControl = addData.(additionalData).sc
 	}
 
 	// non admin user allowed to search only over his entry
-	if !addData.acl.search && (baseObjectAttr != "cn" || (baseObjectAttr == "cn" && baseObjectName != addData.acl.bindEntry)) {
+	if !acl.search && baseObject != acl.bindEntry {
 		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultNoSuchObject)
 		w.Write(res)
 
-		log.Errorf("client [%d]: search error: insufficient access", m.Client.Numero())
+		log.Warnf("client [%d]: search insufficient access", m.Client.Numero())
 		return
 	}
 
@@ -265,49 +257,64 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	// how much entries is left
 	left := simplePagedResultsControl.PageSize().Int()
 	if left == 0 {
-		left = 1 + len(entries.Users) + len(entries.Groups)
+		// 3 = domain + users ou + groups ou
+		left = 3 + len(entries.Users) + len(entries.Groups)
 	}
 
 	// if domain processed -> go to users
-	if addData.sc.domainDone {
-		goto users
+	if searchControl.domainDone {
+		goto ous
 	}
 
-	// if baseObject == baseDN AND searchScope == {0, 2} -> add domain entry
-	if baseObject == cfg.BaseDN && r.Scope() != ldap.SearchRequestScopeOneLevel && r.Scope() != ldap.SearchRequestScopeChildren {
-		ok, err := applySearchFilter(entries.Domain, r.Filter())
-		if err != nil {
-			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
-			res.SetDiagnosticMessage(err.Error())
-			w.Write(res)
+	// got match
+	if baseObject == cfg.BaseDN {
+		// if searchScope == {base, sub} -> add domain entry
+		if r.Scope() == ldap.SearchRequestScopeBaseObject || r.Scope() == ldap.SearchRequestScopeSubtree {
+			ok, err := applySearchFilter(entries.Domain, r.Filter())
+			if err != nil {
+				res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
+				res.SetDiagnosticMessage(err.Error())
+				w.Write(res)
 
-			log.Errorf("client [%d]: search error: %s", m.Client.Numero(), err)
-			return
+				log.Errorf("client [%d]: search error: %s", m.Client.Numero(), err)
+				return
+			}
+
+			if r.SizeLimit().Int() > 0 && searchControl.sent == r.SizeLimit().Int() {
+				sizeLimitReached = true
+				goto end
+			} else if ok {
+				e := createSearchResultEntry(entries.Domain, r.Attributes(), cfg.BaseDN)
+				w.Write(e)
+
+				searchControl.sent++
+				entriesWritten++
+				left--
+
+				// base object found & written -> should not search more
+				if r.Scope() == ldap.SearchRequestScopeBaseObject {
+					goto end
+				}
+			}
 		}
 
-		if r.SizeLimit().Int() > 0 && addData.sc.sent == r.SizeLimit().Int() {
-			sizeLimitReached = true
-			goto end
-		} else if ok {
-			e := createSearchResultEntry(entries.Domain, r.Attributes(), cfg.BaseDN)
-			w.Write(e)
-
-			addData.sc.sent++
-			entriesWritten++
-			left--
+		// should search only one level down, over OUs
+		if r.Scope() == ldap.SearchRequestScopeOneLevel {
+			searchControl.usersDone = true
+			searchControl.groupsDone = true
 		}
 	}
 
 	// domain processed
-	addData.sc.domainDone = true
+	searchControl.domainDone = true
 
-users:
-	// if all users processed -> go to groups
-	if addData.sc.usersDone {
-		goto groups
+ous:
+	// if ous processed -> go to users
+	if searchControl.ousDone {
+		goto users
 	}
 
-	for i := addData.sc.count; i < len(entries.Users); i++ {
+	for i := searchControl.count; i < len(entries.OUs); i++ {
 		// handle stop signal
 		select {
 		case <-m.Done:
@@ -321,18 +328,121 @@ users:
 		}
 
 		if !lastIteration {
-			addData.sc.count++
+			searchControl.count++
 		}
 
-		// if entry not end with baseDN OR baseObject == entry AND (searchScope == 1 OR searchScope == 3) -> skip
-		entryName := fmt.Sprintf("cn=%s,%s", entries.Users[i].CN, cfg.BaseDN)
-		if !strings.HasSuffix(entryName, baseObject) || (entryName == baseObject &&
-			(r.Scope() == ldap.SearchRequestScopeOneLevel || r.Scope() == ldap.SearchRequestScopeChildren)) {
+		entryName := fmt.Sprintf("ou=%s,%s", entries.OUs[i].Name, cfg.BaseDN)
+
+		// entry does not belong to base object
+		if !strings.HasSuffix(entryName, baseObject) {
 			continue
 		}
 
+		// entry != baseobject & scope == base requested
+		if r.Scope() == ldap.SearchRequestScopeBaseObject && entryName != baseObject {
+			continue
+		}
+
+		// search sublevel based on ou name (users or groups)
+		if entryName == baseObject && (r.Scope() == ldap.SearchRequestScopeOneLevel || r.Scope() == ldap.SearchRequestScopeChildren) {
+			searchControl.count = 0
+			switch entries.OUs[i].Name {
+			case cfg.UsersOUName:
+				searchControl.groupsDone = true
+				goto users
+			case cfg.GroupsOUName:
+				searchControl.usersDone = true
+				goto groups
+			}
+		}
+
 		// if size limit reached -> go to response
-		if r.SizeLimit().Int() > 0 && addData.sc.sent == r.SizeLimit().Int() {
+		if r.SizeLimit().Int() > 0 && searchControl.sent == r.SizeLimit().Int() {
+			sizeLimitReached = true
+			goto end
+		}
+
+		// apply search filter for each ou
+		ok, err := applySearchFilter(entries.OUs[i], r.Filter())
+		if err != nil {
+			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnwillingToPerform)
+			res.SetDiagnosticMessage(err.Error())
+			w.Write(res)
+
+			log.Errorf("client [%d]: search error: %s", m.Client.Numero(), err)
+			return
+		}
+
+		// if filter not applied -> skip ou
+		if !ok {
+			continue
+		}
+
+		if lastIteration {
+			goto end
+		}
+
+		e := createSearchResultEntry(entries.OUs[i], r.Attributes(), entryName)
+		w.Write(e)
+
+		searchControl.sent++
+		entriesWritten++
+		left--
+
+		// base object found & written -> should not search more
+		if r.Scope() == ldap.SearchRequestScopeBaseObject {
+			goto end
+		}
+	}
+
+	// ous processed
+	searchControl.count = 0
+	searchControl.ousDone = true
+
+users:
+	// if users processed -> go to groups
+	if searchControl.usersDone {
+		goto groups
+	}
+
+	for i := searchControl.count; i < len(entries.Users); i++ {
+		// handle stop signal
+		select {
+		case <-m.Done:
+			log.Infof("client [%d]: leaving handleSearch...", m.Client.Numero())
+			return
+		default:
+		}
+
+		if left == 0 && !lastIteration {
+			lastIteration = true
+		}
+
+		if !lastIteration {
+			searchControl.count++
+		}
+
+		entryName := fmt.Sprintf("cn=%s,ou=%s,%s", entries.Users[i].CN, cfg.UsersOUName, cfg.BaseDN)
+
+		// entry does not belong to base object
+		if !strings.HasSuffix(entryName, baseObject) {
+			continue
+		}
+
+		// entry != baseobject & scope == base requested
+		if r.Scope() == ldap.SearchRequestScopeBaseObject && entryName != baseObject {
+			continue
+		}
+
+		// user does not have sublevel, END
+		if entryName == baseObject && (r.Scope() == ldap.SearchRequestScopeOneLevel || r.Scope() == ldap.SearchRequestScopeChildren) {
+			searchControl.usersDone = true
+			searchControl.groupsDone = true
+			goto end
+		}
+
+		// if size limit reached -> go to response
+		if r.SizeLimit().Int() > 0 && searchControl.sent == r.SizeLimit().Int() {
 			sizeLimitReached = true
 			goto end
 		}
@@ -360,17 +470,27 @@ users:
 		e := createSearchResultEntry(entries.Users[i], r.Attributes(), entryName)
 		w.Write(e)
 
-		addData.sc.sent++
+		searchControl.sent++
 		entriesWritten++
 		left--
+
+		// base object found & written -> should not search more
+		if r.Scope() == ldap.SearchRequestScopeBaseObject {
+			goto end
+		}
 	}
 
 	// users processed
-	addData.sc.count = 0
-	addData.sc.usersDone = true
+	searchControl.count = 0
+	searchControl.usersDone = true
 
 groups:
-	for i := addData.sc.count; i < len(entries.Groups); i++ {
+	// if groups processed -> go to end
+	if searchControl.groupsDone {
+		goto end
+	}
+
+	for i := searchControl.count; i < len(entries.Groups); i++ {
 		// handle stop signal
 		select {
 		case <-m.Done:
@@ -384,18 +504,30 @@ groups:
 		}
 
 		if !lastIteration {
-			addData.sc.count++
+			searchControl.count++
 		}
 
-		// if entry not end with baseDN OR baseObject == entry AND (searchScope == 1 OR searchScope == 3) -> skip
-		entryName := fmt.Sprintf("cn=%s,%s", entries.Groups[i].CN, cfg.BaseDN)
-		if !strings.HasSuffix(entryName, baseObject) || entryName == baseObject &&
-			(r.Scope() == ldap.SearchRequestScopeOneLevel || r.Scope() == ldap.SearchRequestScopeChildren) {
+		entryName := fmt.Sprintf("cn=%s,ou=%s,%s", entries.Groups[i].CN, cfg.GroupsOUName, cfg.BaseDN)
+
+		// entry does not belong to base object
+		if !strings.HasSuffix(entryName, baseObject) {
 			continue
 		}
 
+		// entry != baseobject & scope == base requested
+		if r.Scope() == ldap.SearchRequestScopeBaseObject && entryName != baseObject {
+			continue
+		}
+
+		// user does not have sublevel, END
+		if entryName == baseObject && (r.Scope() == ldap.SearchRequestScopeOneLevel || r.Scope() == ldap.SearchRequestScopeChildren) {
+			searchControl.usersDone = true
+			searchControl.groupsDone = true
+			goto end
+		}
+
 		// if size limit reached -> brake loop
-		if r.SizeLimit().Int() > 0 && addData.sc.sent == r.SizeLimit().Int() {
+		if r.SizeLimit().Int() > 0 && searchControl.sent == r.SizeLimit().Int() {
 			sizeLimitReached = true
 			goto end
 		}
@@ -423,14 +555,19 @@ groups:
 		e := createSearchResultEntry(entries.Groups[i], r.Attributes(), entryName)
 		w.Write(e)
 
-		addData.sc.sent++
+		searchControl.sent++
 		entriesWritten++
 		left--
+
+		// base object found & written -> should not search more
+		if r.Scope() == ldap.SearchRequestScopeBaseObject {
+			goto end
+		}
 	}
 
 	// groups processed
-	addData.sc.count = 0
-	addData.sc.groupsDone = true
+	searchControl.count = 0
+	searchControl.groupsDone = true
 
 end:
 	newControls := ldap.Controls{}
@@ -438,10 +575,10 @@ end:
 		cpCookie := ldap.OCTETSTRING(programName)
 
 		// end search
-		if (addData.sc.domainDone && addData.sc.usersDone && addData.sc.groupsDone) || sizeLimitReached {
+		if (searchControl.domainDone && searchControl.ousDone && searchControl.usersDone && searchControl.groupsDone) || sizeLimitReached {
 			cpCookie = ldap.OCTETSTRING("")
 			// end search -> cleanup search control
-			addData.sc = searchControl{}
+			searchControl = clientSearchControl{}
 		}
 
 		// encode new paged results control
@@ -460,11 +597,11 @@ end:
 		newControls = append(newControls, c)
 	} else {
 		// end search -> cleanup search control
-		addData.sc = searchControl{}
+		searchControl = clientSearchControl{}
 	}
 
 	// update additional data with new search control
-	m.Client.SetAddData(addData)
+	m.Client.SetAddData(additionalData{acl: acl, sc: searchControl})
 
 	resultCode := ldapserver.LDAPResultSuccess
 	if sizeLimitReached {
@@ -488,11 +625,14 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 	r := m.GetCompareRequest()
 	log.Infof("client [%d]: compare dn=\"%s\" attr=\"%s\"", m.Client.Numero(), r.Entry(), r.Ava().AttributeDesc())
 
-	// entry must be equal to baseDN or look like cn=<COMMON_NAME>,dc=base,dc=dn
-	// TODO: change diag message
-	compareEntry := trimSpacesAfterComma(string(r.Entry()))
+	// check compare entry
+	compareEntry := normalizeEntry(string(r.Entry()))
 	compareEntryAttr, compareEntryName := getEntryAttrAndName(compareEntry)
-	if !strings.HasSuffix(compareEntry, cfg.BaseDN) || (compareEntry != cfg.BaseDN && compareEntryAttr != "cn" && compareEntryAttr != "uid") {
+	// entrySuffix := "ou=" + cfg.UsersOUName + "," + cfg.BaseDN
+	// TODO:
+	//   compareEntryAttr may be ou?
+	//   handle ou in suffix
+	if !strings.HasSuffix(compareEntry, cfg.BaseDN) || (compareEntry != cfg.BaseDN && compareEntryAttr != "ou" && compareEntryAttr != "cn" && compareEntryAttr != "uid") {
 		diagMessage := fmt.Sprintf("wrong dn \"%s\"", r.Entry())
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultInvalidDNSyntax)
 		res.SetDiagnosticMessage(diagMessage)
@@ -504,7 +644,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 
 	// compare for entryDN is not supported
 	if strings.ToLower(string(r.Ava().AttributeDesc())) == "entrydn" {
-		diagMessage := "entryDN compare not supported"
+		diagMessage := "compare over " + string(r.Ava().AttributeDesc()) + " is not supported"
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultUnwillingToPerform)
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
@@ -513,18 +653,18 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 		return
 	}
 
-	// get client's additional data
-	addData := additionalData{}
-	if clientAddData := m.Client.GetAddData(); clientAddData != nil {
-		addData = clientAddData.(additionalData)
+	// get ACLs
+	acl := clientACL{}
+	if addData := m.Client.GetAddData(); addData != nil {
+		acl = addData.(additionalData).acl
 	}
 
 	// requested compare on domain and user not ldap admin OR compare entry != bind entry and user not ldap admin
-	if (compareEntry == cfg.BaseDN && !addData.acl.compare) || (addData.acl.bindEntry != compareEntryName && !addData.acl.compare) {
+	if !acl.compare && compareEntry != acl.bindEntry {
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultInsufficientAccessRights)
 		w.Write(res)
 
-		log.Errorf("client [%d]: compare error: insufficient access", m.Client.Numero())
+		log.Warnf("client [%d]: compare insufficient access", m.Client.Numero())
 		return
 	}
 
@@ -537,49 +677,89 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 
 	}
 
-	for _, user := range entries.Users {
-		// handle stop signal
-		select {
-		case <-m.Done:
-			log.Infof("client [%d]: leaving handleCompare...", m.Client.Numero())
-			return
-		default:
+	switch compareEntryAttr {
+	case "ou":
+		for _, ou := range entries.OUs {
+			// handle stop signal
+			select {
+			case <-m.Done:
+				log.Infof("client [%d]: leaving handleCompare...", m.Client.Numero())
+				return
+			default:
+			}
+
+			if ou.Name != compareEntryName {
+				continue
+			}
+
+			if doCompare(ou, string(r.Ava().AttributeDesc()), string(r.Ava().AssertionValue())) {
+				res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareTrue)
+				w.Write(res)
+
+				log.Infof("client [%d]: compare result=TRUE", m.Client.Numero())
+				return
+			}
+		}
+	case "cn", "uid":
+		for _, user := range entries.Users {
+			// handle stop signal
+			select {
+			case <-m.Done:
+				log.Infof("client [%d]: leaving handleCompare...", m.Client.Numero())
+				return
+			default:
+			}
+
+			var cmpValue string
+			switch compareEntryAttr {
+			case "cn":
+				cmpValue = user.CN
+			case "uid":
+				cmpValue = user.UID
+			}
+
+			if cmpValue != compareEntryName {
+				continue
+			}
+
+			if doCompare(user, string(r.Ava().AttributeDesc()), string(r.Ava().AssertionValue())) {
+				res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareTrue)
+				w.Write(res)
+
+				log.Infof("client [%d]: compare result=TRUE", m.Client.Numero())
+				return
+			}
 		}
 
-		if user.CN != compareEntryName {
-			continue
+		// group doesn't have uid attr -> skip groups
+		if compareEntryAttr == "uid" {
+			goto end
 		}
 
-		if doCompare(user, string(r.Ava().AttributeDesc()), string(r.Ava().AssertionValue())) {
-			res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareTrue)
-			w.Write(res)
+		for _, group := range entries.Groups {
+			// handle stop signal
+			select {
+			case <-m.Done:
+				log.Infof("client [%d]: leaving handleCompare...", m.Client.Numero())
+				return
+			default:
+			}
 
-			log.Infof("client [%d]: compare result=TRUE", m.Client.Numero())
-			return
+			if group.CN != compareEntryName {
+				continue
+			}
+
+			if doCompare(group, string(r.Ava().AttributeDesc()), string(r.Ava().AssertionValue())) {
+				res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareTrue)
+				w.Write(res)
+
+				log.Infof("client [%d]: compare result=TRUE", m.Client.Numero())
+				return
+			}
 		}
 	}
-	for _, group := range entries.Groups {
-		// handle stop signal
-		select {
-		case <-m.Done:
-			log.Infof("client [%d]: leaving handleCompare...", m.Client.Numero())
-			return
-		default:
-		}
 
-		if group.CN != compareEntryName {
-			continue
-		}
-
-		if doCompare(group, string(r.Ava().AttributeDesc()), string(r.Ava().AssertionValue())) {
-			res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareTrue)
-			w.Write(res)
-
-			log.Infof("client [%d]: compare result=TRUE", m.Client.Numero())
-			return
-		}
-	}
-
+end:
 	res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareFalse)
 	w.Write(res)
 
@@ -596,7 +776,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 
 	// entry must be equal to baseDN or look like cn=<COMMON_NAME>,dc=base,dc=dn
 	// TODO: change diag message
-	modifyEntry := trimSpacesAfterComma(string(r.Object()))
+	modifyEntry := normalizeEntry(string(r.Object()))
 	modifyEntryAttr, modifyEntryName := getEntryAttrAndName(modifyEntry)
 	if !strings.HasSuffix(modifyEntry, cfg.BaseDN) || (modifyEntryAttr != "cn" && modifyEntryAttr != "uid") {
 		diagMessage := fmt.Sprintf("wrong dn \"%s\"", r.Object())
@@ -608,18 +788,18 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 		return
 	}
 
-	// get client's additional data
-	addData := additionalData{}
-	if clientAddData := m.Client.GetAddData(); clientAddData != nil {
-		addData = clientAddData.(additionalData)
+	// get ACLs
+	acl := clientACL{}
+	if addData := m.Client.GetAddData(); addData != nil {
+		acl = addData.(additionalData).acl
 	}
 
 	// ldap admin can do modify on all entries
-	if addData.acl.bindEntry != modifyEntryName && !addData.acl.modify {
+	if !acl.modify && modifyEntry != acl.bindEntry {
 		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultInsufficientAccessRights)
 		w.Write(res)
 
-		log.Errorf("client [%d]: modify error: insufficient access", m.Client.Numero())
+		log.Warnf("client [%d]: modify insufficient access", m.Client.Numero())
 		return
 	}
 

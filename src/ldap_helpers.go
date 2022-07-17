@@ -131,31 +131,27 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	return false, nil
 }
 
-// actual compare
+// doCompare returns true if object 'o' has attr 'attrName' with value 'attrValue'
 func doCompare(o interface{}, attrName string, attrValue string) bool {
-	rValue := reflect.ValueOf(o)
-	for i := 0; i < rValue.Type().NumField(); i++ {
-		if !strings.EqualFold(rValue.Type().Field(i).Name, attrName) {
-			continue
-		}
-		switch rValue.Field(i).Interface().(type) {
+	fieldValue := reflect.ValueOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
+	if fieldValue.IsValid() {
+		fieldType, _ := reflect.TypeOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
+		switch val := fieldValue.Interface().(type) {
 		case string:
-			objValue := rValue.Field(i).String()
-			if _, ok := rValue.Type().Field(i).Tag.Lookup("ldap_case_sensitive_value"); !ok {
-				objValue = strings.ToLower(objValue)
+			if _, ok := fieldType.Tag.Lookup("ldap_case_sensitive_value"); !ok {
+				val = strings.ToLower(val)
 				attrValue = strings.ToLower(attrValue)
 			}
-			if objValue == attrValue {
+			if val == attrValue {
 				return true
 			}
 		case []string:
-			for j := 0; j < rValue.Field(i).Len(); j++ {
-				objValue := rValue.Field(i).Index(j).String()
-				if _, ok := rValue.Type().Field(i).Tag.Lookup("ldap_case_sensitive_value"); !ok {
-					objValue = strings.ToLower(objValue)
+			for _, v := range val {
+				if _, ok := fieldType.Tag.Lookup("ldap_case_sensitive_value"); !ok {
+					v = strings.ToLower(v)
 					attrValue = strings.ToLower(attrValue)
 				}
-				if objValue == attrValue {
+				if v == attrValue {
 					return true
 				}
 			}

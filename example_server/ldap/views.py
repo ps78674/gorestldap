@@ -4,7 +4,7 @@ from .serializers import UserSerializer, GroupSerializer
 
 
 class UserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.all()
+    queryset = User.objects.filter(is_active=True)
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAdminUser]
     http_method_names = ['get', 'put']

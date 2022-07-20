@@ -1,24 +1,25 @@
 from rest_framework import serializers
 from .models import User, Group
+from .validators import LowercaseASCIIUsernameValidator, LowercaseASCIIGroupnameValidator
 
 
 class UserSerializer(serializers.ModelSerializer):
-    ldapAdmin = serializers.BooleanField(source='ldap_admin')
-    entryUUID = serializers.CharField(source='entry_uuid')
+    ldapAdmin = serializers.BooleanField(source='ldap_admin', required=False)
+    entryUUID = serializers.CharField(source='entry_uuid', required=False)
     hasSubordinates = serializers.SerializerMethodField()
     objectClass = serializers.SerializerMethodField()
-    cn = serializers.CharField(source='username')
-    uidNumber = serializers.IntegerField(source='uid_number')
-    userPassword = serializers.CharField(source='ldap_password')
-    gidNumber = serializers.SlugRelatedField(source='primary_group', slug_field='gid_number', queryset=Group.objects.all())
-    uid = serializers.CharField(source='username')
+    cn = serializers.CharField(source='username', validators=[LowercaseASCIIUsernameValidator()], required=False)
+    uidNumber = serializers.IntegerField(source='uid_number', required=False)
+    userPassword = serializers.CharField(source='ldap_password', required=False)
+    gidNumber = serializers.SlugRelatedField(source='primary_group', slug_field='gid_number', queryset=Group.objects.all(), required=False)
+    uid = serializers.CharField(source='username', read_only=True)
     displayName = serializers.SerializerMethodField()
-    givenName = serializers.CharField(source='first_name')
-    sn = serializers.CharField(source='last_name')
-    mail = serializers.CharField(source='email')
+    givenName = serializers.CharField(source='first_name', required=False)
+    sn = serializers.CharField(source='last_name', required=False)
+    mail = serializers.CharField(source='email', required=False)
     homeDirectory = serializers.SerializerMethodField()
     loginShell = serializers.SerializerMethodField()
-    memberOf = serializers.SlugRelatedField(source='groups', slug_field='name', queryset=Group.objects.all(), many=True)
+    memberOf = serializers.SlugRelatedField(source='groups', slug_field='name', queryset=Group.objects.all(), many=True, required=False)
 
     class Meta:
         model = User
@@ -66,13 +67,13 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class GroupSerializer(serializers.ModelSerializer):
-    entryUUID = serializers.CharField(source='entry_uuid')
+    entryUUID = serializers.CharField(source='entry_uuid', required=False)
     hasSubordinates = serializers.SerializerMethodField()
     objectClass = serializers.SerializerMethodField()
-    cn = serializers.CharField(source='name')
-    gidNumber = serializers.IntegerField(source='gid_number')
-    description = serializers.CharField()
-    memberUid = serializers.SlugRelatedField(source='user_set', slug_field='username', queryset=User.objects.all(), many=True)
+    cn = serializers.CharField(source='ldap_name', validators=[LowercaseASCIIGroupnameValidator()], required=False)
+    gidNumber = serializers.IntegerField(source='gid_number', required=False)
+    description = serializers.CharField(required=False)
+    memberUid = serializers.SlugRelatedField(source='user_set', slug_field='username', queryset=User.objects.all(), many=True, required=False)
 
     class Meta:
         model = User

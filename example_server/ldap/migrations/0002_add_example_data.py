@@ -34,7 +34,7 @@ GROUPS_DATA = [
 
 def fill_data(*args, **kwargs):
     pgroup = Group.objects.create(
-        name = PRIMARY_GROUP_DATA['name'],
+        ldap_name = PRIMARY_GROUP_DATA['name'],
         gid_number = PRIMARY_GROUP_DATA['gid_number'],
     )
 
@@ -58,7 +58,7 @@ def fill_data(*args, **kwargs):
 
     for g in GROUPS_DATA:
         group = Group.objects.create(
-            name = g['name'],
+            ldap_name = g['name'],
             gid_number = g['gid_number']
         )
 

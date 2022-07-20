@@ -20,6 +20,7 @@ class UserAdmin(ContribUserAdmin):
             'fields': ('username', 'password1', 'password2', 'uid_number', 'primary_group'),
         }),
     )
+    list_display = ('username', 'email', 'first_name', 'last_name', 'ldap_admin')
 
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
@@ -28,7 +29,7 @@ class UserAdmin(ContribUserAdmin):
 
 class GroupAdmin(ContribGroupAdmin):
     fieldsets = (
-        (None, {'fields': ('name', 'gid_number', 'description', 'permissions')}),
+        (None, {'fields': ('ldap_name', 'gid_number', 'description', 'permissions')}),
     )
 
 

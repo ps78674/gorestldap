@@ -173,7 +173,7 @@ func main() {
 	// assert type
 	backend, ok := symBackend.(Backend)
 	if !ok {
-		log.Fatal("unexpected exported symbol type")
+		log.Fatal("error loading backend: unexpected type")
 	}
 
 	// marshall backend config

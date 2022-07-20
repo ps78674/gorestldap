@@ -53,7 +53,7 @@ func (b *backend) GetData() ([]data.User, []data.Group, error) {
 func getData(c *fasthttp.Client, url, token string, data interface{}) error {
 	respData, err := doRequest(c, url, token)
 	if err != nil {
-		return fmt.Errorf("error getting response: %s", err)
+		return fmt.Errorf("request error: %s", err)
 	}
 
 	if err = json.Unmarshal(respData, data); err != nil {

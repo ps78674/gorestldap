@@ -38,6 +38,7 @@ type Config struct {
 	ServerCert         string                 `yaml:"server_cert"`
 	ServerKey          string                 `yaml:"server_key"`
 	CallbackListenAddr string                 `yaml:"callback_listen_addr"`
+	CallbackAuthToken  string                 `yaml:"callback_auth_token"`
 }
 
 type Backend interface {

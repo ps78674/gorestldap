@@ -3,9 +3,6 @@ github.com/andybalholm/brotli v1.0.4/go.mod h1:fO7iG3H7G2nSZ7m0zPUDn85XEX2GTukHG
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815 h1:bWDMxwH3px2JBh6AyO7hdCn/PkvCZXii8TGj7sbtEbQ=
-github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815/go.mod h1:WwZ+bS3ebgob9U8Nd0kOddGdZWjyMGR8Wziv+TBNwSE=
-github.com/klauspost/compress v1.15.0 h1:xqfchp4whNFxn5A4XFyyYtitiWI8Hy5EW59jEwcyL6U=
 github.com/klauspost/compress v1.15.0/go.mod h1:/3/Vjq9QcHkK5uEr5lBEmyoZ1iFhe47etQ6QUkpK6sk=
 github.com/klauspost/compress v1.15.7 h1:7cgTQxJCU/vy+oP/E3B9RGbQTgbiVzIJWIKOLoAsPok=
 github.com/klauspost/compress v1.15.7/go.mod h1:PhcZ0MbTNciWF3rruxRgKxI5NkcHHrHUDtV4Yw2GlzU=
@@ -16,10 +13,6 @@ github.com/ps78674/docopt.go v0.0.0-20220706173634-bb0893fa72cc/go.mod h1:ABV8+1
 github.com/ps78674/goldap v0.0.0-20210209183235-23e5df50a4b5/go.mod h1:1I9otN1F15q9oNDy1XDfWWCMl5qD2bUHG8OC+IwyDa0=
 github.com/ps78674/goldap v0.0.0-20210727122805-99df957a6c80 h1:T1l1uRhOspRA182xxnORen6BSDtfpWF/jxP234eyzQI=
 github.com/ps78674/goldap v0.0.0-20210727122805-99df957a6c80/go.mod h1:1I9otN1F15q9oNDy1XDfWWCMl5qD2bUHG8OC+IwyDa0=
-github.com/ps78674/ldapserver v0.0.0-20210907090246-ec1d459324db h1:VXhipHKRKLikuCtLqj94m9hhXgv5Lp8Arj1XtQRP+wA=
-github.com/ps78674/ldapserver v0.0.0-20210907090246-ec1d459324db/go.mod h1:CNxaae34XWLZM6LH5Qp632Ve8kv8DdCgYQJN4LLovig=
-github.com/ps78674/ldapserver v0.0.0-20220708160055-dd9c94e213cb h1:XH/aVtHpomqXcSj2YYw7KR7reGggvt8khsm/34dRQSY=
-github.com/ps78674/ldapserver v0.0.0-20220708160055-dd9c94e213cb/go.mod h1:EllvASg8pIZWhkYUDopfh9aq2XG+McxtGkv5lQDf81w=
 github.com/ps78674/ldapserver v0.0.0-20220708160806-8f8d875bf8db h1:ZO9rjQdQEEJR/bErecGwypOBgsc23aS+4qpO4oq9pHs=
 github.com/ps78674/ldapserver v0.0.0-20220708160806-8f8d875bf8db/go.mod h1:EllvASg8pIZWhkYUDopfh9aq2XG+McxtGkv5lQDf81w=
 github.com/sirupsen/logrus v1.8.1 h1:dJKuHgqk1NNQlqoA6BTlM1Wf9DOH3NBjQyu0h9+AZZE=
@@ -48,6 +41,7 @@ golang.org/x/term v0.0.0-20210927222741-03fcf44c2211/go.mod h1:jbD1KX2456YbFQfuX
 golang.org/x/text v0.3.6/go.mod h1:5Zoc/QRtKVWzQhOtBMvqHzDpF6irO9z98xDceosuGiQ=
 golang.org/x/text v0.3.7/go.mod h1:u+2+/6zg+i71rQMx5EYifcz6MCKuco9NR6JIITiCfzQ=
 golang.org/x/tools v0.0.0-20180917221912-90fa682c2a6e/go.mod h1:n7NCudcB/nEzxVGmLbDWY5pfWTLqBcC2KZ6jyYvM4mQ=
+gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 h1:yhCVgyC4o1eVCa2tZl7eS0r+SDo693bJlVdllGtEeKM=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
 gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b h1:h8qDotaEPuJATrMmW04NCwg7v22aHH28wwpauUhK9Oo=

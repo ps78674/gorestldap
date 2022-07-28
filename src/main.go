@@ -194,7 +194,7 @@ func main() {
 	}
 
 	// setup entries
-	_, dc := getEntryAttrAndName(cfg.BaseDN)
+	_, dc, _ := getEntryAttrNameSuffix(cfg.BaseDN)
 	var domain = data.Domain{
 		ObjectClass: []string{
 			"top",
@@ -245,16 +245,9 @@ func main() {
 	routes.Compare(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		handleCompare(w, m, &entries)
 	})
-
-	// // modify supported only with url
-	// for _, a := range os.Args {
-	// 	switch a {
-	// 	case "-u", "--url":
-	// 		routes.Modify(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-	// 			handleModify(w, m, &entries, &backend)
-	// 		})
-	// 	}
-	// }
+	// routes.Modify(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
+	// 	handleModify(w, m, &entries, &backend)
+	// })
 
 	//Attach routes to server
 	ldapServer.Handle(routes)

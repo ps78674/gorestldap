@@ -19,6 +19,41 @@ type attrValues struct {
 	Values interface{}
 }
 
+// isCorrectDn checks dn syntax
+func isCorrectDn(s string) bool {
+	var allowedAttrs = []string{"cn", "uid", "ou", "dc"}
+
+	for _, sub := range strings.Split(s, ",") {
+		var found bool
+		attrValuePair := strings.SplitN(sub, "=", 2)
+		if len(attrValuePair) < 2 {
+			return false
+		}
+		for _, attr := range allowedAttrs {
+			if attrValuePair[0] == attr {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	return true
+}
+
+func getEntryAttrNameSuffix(entry string) (attr, name, suffix string) {
+	split := strings.SplitN(entry, ",", 2)
+	attrValuePair := strings.SplitN(split[0], "=", 2)
+	attr = attrValuePair[0]
+	name = attrValuePair[1]
+	if len(split) == 2 {
+		suffix = split[1]
+	}
+	return
+}
+
 // applySearchFilter returns true if object 'o' fits filter 'f'
 func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	switch f.(type) {
@@ -131,34 +166,40 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	return false, nil
 }
 
-// doCompare returns true if object 'o' has attr 'attrName' with value 'attrValue'
-func doCompare(o interface{}, attrName string, attrValue string) bool {
+// doCompare checks if object 'o' have attr 'attrName' with value 'attrValue'
+func doCompare(o interface{}, attrName string, attrValue string) (bool /* attrExist */, bool /* ok */) {
 	fieldValue := reflect.ValueOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
-	if fieldValue.IsValid() {
-		fieldType, _ := reflect.TypeOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
-		switch val := fieldValue.Interface().(type) {
-		case string:
+	if !fieldValue.IsValid() {
+		return false, false
+	}
+
+	fieldType, ok := reflect.TypeOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
+	if !ok {
+		return false, false
+	}
+
+	switch val := fieldValue.Interface().(type) {
+	case string:
+		if _, ok := fieldType.Tag.Lookup("ldap_case_sensitive_value"); !ok {
+			val = strings.ToLower(val)
+			attrValue = strings.ToLower(attrValue)
+		}
+		if val == attrValue {
+			return true, true
+		}
+	case []string:
+		for _, v := range val {
 			if _, ok := fieldType.Tag.Lookup("ldap_case_sensitive_value"); !ok {
-				val = strings.ToLower(val)
+				v = strings.ToLower(v)
 				attrValue = strings.ToLower(attrValue)
 			}
-			if val == attrValue {
-				return true
-			}
-		case []string:
-			for _, v := range val {
-				if _, ok := fieldType.Tag.Lookup("ldap_case_sensitive_value"); !ok {
-					v = strings.ToLower(v)
-					attrValue = strings.ToLower(attrValue)
-				}
-				if v == attrValue {
-					return true
-				}
+			if v == attrValue {
+				return true, true
 			}
 		}
 	}
 
-	return false
+	return true, false
 }
 
 // create slice of ldap attributes
@@ -275,16 +316,6 @@ func createSearchResultEntry(o interface{}, attrs ldap.AttributeSelection, entry
 			}
 		}
 	}
-
-	return
-}
-
-func getEntryAttrAndName(e string) (attr string, name string) {
-	str := strings.SplitN(e, ",", 2)[0]
-
-	splitted := strings.SplitN(str, "=", 2)
-	attr = splitted[0]
-	name = splitted[1]
 
 	return
 }

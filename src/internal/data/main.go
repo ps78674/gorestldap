@@ -21,7 +21,7 @@ type User struct {
 	ObjectClass     []string `json:"objectClass"`
 	CN              string   `json:"cn"`
 	UIDNumber       uint     `json:"uidNumber"`
-	UserPassword    string   `json:"userPassword" ldap_case_sensitive_value_value:""`
+	UserPassword    string   `json:"userPassword" ldap_case_sensitive_value:""`
 	GIDNumber       uint     `json:"gidNumber"`
 	UID             string   `json:"uid"`
 	DisplayName     string   `json:"displayName"`

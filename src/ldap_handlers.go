@@ -40,73 +40,68 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *dat
 	r := m.GetBindRequest()
 	log.Infof("client [%d]: bind dn=\"%s\"", m.Client.Numero(), r.Name())
 
-	// only simple authentiacion supported
+	// only simple authentication supported
 	if r.AuthenticationChoice() != "simple" {
-		diagMessage := fmt.Sprintf("authentication method %s is not supported", r.AuthenticationChoice())
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultAuthMethodNotSupported)
-		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
-		log.Errorf("client [%d]: bind error: %s", m.Client.Numero(), diagMessage)
+		log.Errorf("client [%d]: bind error: authentication method '%s' is not supported", m.Client.Numero(), r.AuthenticationChoice())
 		return
 	}
 
+	// check bind entry dn
 	bindEntry := normalizeEntry(string(r.Name()))
-	bindEntryAttr, bindEntryName, _ := getEntryAttrNameSuffix(bindEntry)
-	entrySuffix := "ou=" + cfg.UsersOUName + "," + cfg.BaseDN
-
-	// entry must have proper suffix & attr must be cn || uid
-	if !strings.HasSuffix(bindEntry, entrySuffix) || (bindEntryAttr != "cn" && bindEntryAttr != "uid") {
-		diagMessage := fmt.Sprintf("wrong dn \"%s\"", r.Name())
-		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidDNSyntax)
-		res.SetDiagnosticMessage(diagMessage)
+	if !isCorrectDn(bindEntry) {
+		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultInvalidDNSyntax)
 		w.Write(res)
 
-		log.Errorf("client [%d]: bind error: %s", m.Client.Numero(), diagMessage)
+		log.Errorf("client [%d]: bind error: wrong dn '%s'", m.Client.Numero(), r.Name())
 		return
 	}
 
-	// get user
+	bindEntryAttr, bindEntryName, bindEntrySuffix := getEntryAttrNameSuffix(bindEntry)
+
 	userData := data.User{}
-	for _, u := range entries.Users {
-		var cmpValue string
-
-		v := getAttrValues(u, bindEntryAttr)
-		if v != nil {
-			cmpValue = v.(string)
-		}
-
-		if strings.EqualFold(cmpValue, bindEntryName) {
-			userData = u
-			break
-		}
+	if bindEntrySuffix != "ou="+cfg.UsersOUName+","+cfg.BaseDN {
+		goto userNotFound
 	}
 
+	for _, user := range entries.Users {
+		var cmpValue string
+		switch bindEntryAttr {
+		case "cn":
+			cmpValue = user.CN
+		case "uid":
+			cmpValue = user.UID
+		}
+		if cmpValue != bindEntryName {
+			continue
+		}
+		userData = user
+	}
+
+userNotFound:
 	// got empty struct -> user not found
 	if reflect.DeepEqual(userData, data.User{}) {
-		diagMessage := fmt.Sprintf("dn \"%s\" not found", r.Name())
-		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
-		res.SetDiagnosticMessage(diagMessage)
+		res := ldapserver.NewBindResponse(ldapserver.LDAPResultNoSuchObject)
 		w.Write(res)
 
-		log.Errorf("client [%d]: bind error: %s", m.Client.Numero(), diagMessage)
+		log.Errorf("client [%d]: bind error: dn '%s' not found", m.Client.Numero(), r.Name())
 		return
 	}
 
 	// validate password
 	ok, err := validatePassword(r.AuthenticationSimple().String(), userData.UserPassword)
 	if !ok {
-		diagMessage := fmt.Sprintf("wrong password for dn \"%s\"", r.Name())
-
-		if err != nil {
-			diagMessage = fmt.Sprintf("%s: %s", diagMessage, err)
-		}
-
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
-		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
-		log.Errorf("client [%d]: bind error: %s", m.Client.Numero(), diagMessage)
+		errMsg := fmt.Sprintf("wrong password for dn '%s'", r.Name())
+		if err != nil {
+			errMsg = errMsg + ": " + err.Error()
+		}
+
+		log.Errorf("client [%d]: bind error: %s", m.Client.Numero(), errMsg)
 		return
 	}
 

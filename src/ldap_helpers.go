@@ -173,10 +173,7 @@ func doCompare(o interface{}, attrName string, attrValue string) (bool /* attrEx
 		return false, false
 	}
 
-	fieldType, ok := reflect.TypeOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
-	if !ok {
-		return false, false
-	}
+	fieldType, _ := reflect.TypeOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
 
 	switch val := fieldValue.Interface().(type) {
 	case string:

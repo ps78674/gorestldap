@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+
 	"github.com/ps78674/gorestldap/src/internal/data"
 )
 
@@ -20,4 +22,8 @@ func (b *backend) ReadConfig(in []byte) error {
 
 func (b *backend) GetData() ([]data.User, []data.Group, error) {
 	return []data.User{}, []data.Group{}, nil
+}
+
+func (b *backend) UpdateData(old, new interface{}) error {
+	return errors.New("updating data is not supported by this backend")
 }

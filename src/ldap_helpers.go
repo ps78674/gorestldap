@@ -1,22 +1,24 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 
 	ldap "github.com/ps78674/goldap/message"
 )
 
-type passwordData struct {
-	CN           string `json:"cn"`
-	UserPassword string `json:"userPassword"`
-}
-
 type attrValues struct {
 	Attr   string
 	Values interface{}
+}
+
+type LDAPError struct {
+	ResultCode int
+	error
 }
 
 // isCorrectDn checks dn syntax
@@ -221,22 +223,59 @@ func normalizeEntry(s string) string {
 	return re.ReplaceAllString(s, ",")
 }
 
-// modify password via api
-func doModify(cn string, pw string) error {
-	// b, err := json.Marshal(passwordData{CN: cn, UserPassword: pw})
-	// if err != nil {
-	// 	return err
-	// }
+// doModify update object's 'o' attr 'attrName' with value 'attrValue'
+func doModify(o interface{}, attrName string, values []ldap.AttributeValue) error {
+	root := reflect.ValueOf(o).Elem()
+	obj := root.Elem()
+	objType := obj.Type()
+	objCopy := reflect.New(objType).Elem()
+	objCopy.Set(obj)
 
-	// reqURL := fmt.Sprintf("%s%s", cfg.URL, urlLDAPUsers)
-	// nb, err := doRequest(reqURL, b)
-	// if err != nil {
-	// 	return err
-	// }
+	var errLDAPNoAttr error = LDAPError{
+		ldap.ResultCodeUndefinedAttributeType,
+		errors.New("target entry does not have requested attribute"),
+	}
 
-	// if !bytes.Equal(b, nb) {
-	// 	return fmt.Errorf("%s", nb)
-	// }
+	fieldValue := objCopy.FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
+	if !fieldValue.IsValid() {
+		return errLDAPNoAttr
+	}
+
+	fieldType, _ := objType.FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
+	if _, ok := fieldType.Tag.Lookup("ldap_skip"); ok {
+		return errLDAPNoAttr
+	}
+
+	var errLDAPMultiValue error = LDAPError{
+		ldap.ResultCodeInvalidAttributeSyntax,
+		errors.New("attempt to set multiple values on single value attribute"),
+	}
+
+	switch fieldValue.Interface().(type) {
+	case uint:
+		if len(values) > 1 {
+			return errLDAPMultiValue
+		}
+		_uint, err := strconv.ParseUint(string(values[0]), 10, 32)
+		if err != nil {
+			return LDAPError{
+				ldap.ResultCodeUndefinedAttributeType,
+				fmt.Errorf("wrong attribute value: %s", err),
+			}
+		}
+		fieldValue.SetUint(_uint)
+	case string:
+		if len(values) > 1 {
+			return errLDAPMultiValue
+		}
+		fieldValue.SetString(string(values[0]))
+	case []string:
+		for _, v := range values {
+			fieldValue.SetString(string(v))
+		}
+	}
+
+	root.Set(objCopy)
 
 	return nil
 }

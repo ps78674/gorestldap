@@ -15,7 +15,6 @@ backends:
     groups_path: groups.json
 
 respect_control_criticality: true
-callback_auth_token: qwertyuiop1234567890
 
 users_ou_name: users
 groups_ou_name: groups
@@ -25,3 +24,4 @@ server_cert: server.crt
 server_key: server.key
 
 callback_listen_addr: localhost:8080
+callback_auth_token: qwertyuiop1234567890

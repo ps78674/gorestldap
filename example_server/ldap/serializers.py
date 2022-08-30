@@ -1,9 +1,33 @@
 from rest_framework import serializers
+from django.utils.translation import gettext_lazy as _
+from django.core.validators import EmailValidator
 from .models import User, Group
 from .validators import LowercaseASCIIUsernameValidator, LowercaseASCIIGroupnameValidator
 
 
-class UserSerializer(serializers.ModelSerializer):
+class StrictReadOnlyFieldsMixin:
+    default_error_messages = {
+        'read_only': _('This field is read only')
+    }
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        if not hasattr(self, 'initial_data'):
+            return attrs
+
+        read_only_fields = { field_name for field_name, field in self.fields.items() if field.read_only } | set(getattr(self.Meta, 'read_only_fields', set()))
+        received_read_only_fields = set(self.initial_data) & read_only_fields
+        if received_read_only_fields:
+            errors = {}
+            for field_name in received_read_only_fields:
+                errors[field_name] = serializers.ErrorDetail(self.error_messages['read_only'], code='read_only')
+
+            raise serializers.ValidationError(errors)
+
+        return attrs
+
+
+class UserSerializer(StrictReadOnlyFieldsMixin, serializers.ModelSerializer):
     ldapAdmin = serializers.BooleanField(source='ldap_admin', required=False)
     entryUUID = serializers.CharField(source='entry_uuid', required=False)
     hasSubordinates = serializers.SerializerMethodField()
@@ -16,7 +40,7 @@ class UserSerializer(serializers.ModelSerializer):
     displayName = serializers.SerializerMethodField()
     givenName = serializers.CharField(source='first_name', required=False)
     sn = serializers.CharField(source='last_name', required=False)
-    mail = serializers.CharField(source='email', required=False)
+    mail = serializers.CharField(source='email', required=False, validators=[EmailValidator()])
     homeDirectory = serializers.SerializerMethodField()
     loginShell = serializers.SerializerMethodField()
     memberOf = serializers.SlugRelatedField(source='groups', slug_field='name', queryset=Group.objects.all(), many=True, required=False)

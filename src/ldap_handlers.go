@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	ldap "github.com/ps78674/goldap/message"
 	"github.com/ps78674/gorestldap/src/internal/data"
@@ -745,21 +746,30 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 	}
 }
 
-// handle modify (only userPassword for now)
-func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries) {
+// handle modify
+func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, b Backend, ticker *time.Ticker) {
 	entries.RLock()
 	defer entries.RUnlock()
 
 	r := m.GetModifyRequest()
-	log.Infof("client [%d]: modify dn=\"%s\"", m.Client.Numero(), r.Object())
+	log.Infof("client [%d]: modify dn='%s'", m.Client.Numero(), r.Object())
 
-	// entry must be equal to baseDN or look like cn=<COMMON_NAME>,dc=base,dc=dn
-	// TODO: change diag message
+	// check modify entry dn
 	modifyEntry := normalizeEntry(string(r.Object()))
-	modifyEntryAttr, modifyEntryName, _ := getEntryAttrNameSuffix(modifyEntry)
-	if !strings.HasSuffix(modifyEntry, cfg.BaseDN) || (modifyEntryAttr != "cn" && modifyEntryAttr != "uid") {
-		diagMessage := fmt.Sprintf("wrong dn \"%s\"", r.Object())
+	if !isCorrectDn(modifyEntry) {
+		diagMessage := fmt.Sprintf("wrong dn '%s'", r.Object())
 		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultInvalidDNSyntax)
+		res.SetDiagnosticMessage(diagMessage)
+		w.Write(res)
+
+		log.Errorf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
+		return
+	}
+
+	// modify of domain or ou is not supported
+	if modifyEntry == cfg.BaseDN || modifyEntry == "ou="+cfg.UsersOUName+","+cfg.BaseDN || modifyEntry == "ou="+cfg.GroupsOUName+","+cfg.BaseDN {
+		diagMessage := fmt.Sprintf("modify of '%s' is not supported", modifyEntry)
+		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultUnwillingToPerform)
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
@@ -773,7 +783,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 		acl = addData.(additionalData).acl
 	}
 
-	// ldap admin can do modify on all entries
+	// non-admin can modify only own entry
 	if !acl.modify && modifyEntry != acl.bindEntry {
 		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultInsufficientAccessRights)
 		w.Write(res)
@@ -781,6 +791,65 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 		log.Warnf("client [%d]: modify insufficient access", m.Client.Numero())
 		return
 	}
+
+	var oldEntry interface{}
+	modifyEntryAttr, modifyEntryName, modifyEntrySuffix := getEntryAttrNameSuffix(modifyEntry)
+	switch {
+	case modifyEntrySuffix == "ou="+cfg.UsersOUName+","+cfg.BaseDN:
+		for _, user := range entries.Users {
+			// handle stop signal
+			select {
+			case <-m.Done:
+				log.Infof("client [%d]: leaving handleModify...", m.Client.Numero())
+				return
+			default:
+			}
+
+			var cmpValue string
+			switch modifyEntryAttr {
+			case "cn":
+				cmpValue = user.CN
+			case "uid":
+				cmpValue = user.UID
+			}
+
+			if cmpValue != modifyEntryName {
+				continue
+			}
+
+			oldEntry = user
+			break
+		}
+	case strings.HasPrefix(modifyEntry, "cn=") && modifyEntrySuffix == "ou="+cfg.GroupsOUName+","+cfg.BaseDN:
+		for _, group := range entries.Groups {
+			// handle stop signal
+			select {
+			case <-m.Done:
+				log.Infof("client [%d]: leaving handleModify...", m.Client.Numero())
+				return
+			default:
+			}
+
+			if group.CN != modifyEntryName {
+				continue
+			}
+
+			oldEntry = group
+			break
+		}
+	}
+
+	// entry not found
+	if oldEntry == nil {
+		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultNoSuchObject)
+		w.Write(res)
+
+		log.Errorf("client [%d]: modify error: target entry not found", m.Client.Numero())
+		return
+	}
+
+	// copy entry for modify
+	newEntry := oldEntry
 
 	for _, c := range r.Changes() {
 		// handle stop signal
@@ -792,9 +861,11 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 		}
 
 		// check operation type
-		log.Infof("client [%d]: modify op=%d", m.Client.Numero(), c.Operation())
+		attrName := string(c.Modification().Type_())
+		opType := c.Operation().Int()
+		log.Infof("client [%d]: modify op=%d attr=%s", m.Client.Numero(), c.Operation(), attrName)
 		if c.Operation().Int() != ldap.ModifyRequestChangeOperationReplace {
-			diagMessage := fmt.Sprintf("wrong operation %d: only replace (2) is supported", c.Operation().Int())
+			diagMessage := fmt.Sprintf("wrong operation %d: only 2 (replace) is supported", opType)
 			res := ldapserver.NewModifyResponse(ldapserver.LDAPResultUnwillingToPerform)
 			res.SetDiagnosticMessage(diagMessage)
 			w.Write(res)
@@ -803,31 +874,9 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 			return
 		}
 
-		// check attribute name
-		log.Infof("client [%d]: modify attr=%s", m.Client.Numero(), c.Modification().Type_())
-		if c.Modification().Type_() != "userPassword" {
-			diagMessage := fmt.Sprintf("wrong attribute %s, only userPassword is supported", c.Modification().Type_())
-			res := ldapserver.NewModifyResponse(ldapserver.LDAPResultUnwillingToPerform)
-			res.SetDiagnosticMessage(diagMessage)
-			w.Write(res)
-
-			log.Errorf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
-			return
-		}
-
-		if len(c.Modification().Vals()) > 1 {
-			diagMessage := "more than 1 value for userPassword is not supported"
-			res := ldapserver.NewModifyResponse(ldapserver.LDAPResultUnwillingToPerform)
-			res.SetDiagnosticMessage(diagMessage)
-			w.Write(res)
-
-			log.Errorf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
-			return
-		}
-
-		if err := doModify(modifyEntryName, string(c.Modification().Vals()[0])); err != nil {
-			res := ldapserver.NewModifyResponse(ldapserver.LDAPResultOther)
-			res.SetDiagnosticMessage(err.Error())
+		// modify
+		if err := doModify(&newEntry, attrName, c.Modification().Vals()); err != nil {
+			res := ldapserver.NewModifyResponse(err.(LDAPError).ResultCode)
 			w.Write(res)
 
 			log.Errorf("client [%d]: modify error: %s", m.Client.Numero(), err)
@@ -835,6 +884,23 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 		}
 	}
 
+	// update backend entry
+	if err := b.UpdateData(oldEntry, newEntry); err != nil {
+		diagMessage := fmt.Sprintf("error updating backend data: %s", err)
+		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultUnwillingToPerform)
+		res.SetDiagnosticMessage(diagMessage)
+		w.Write(res)
+
+		log.Errorf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
+		return
+	}
+
+	// force update entries
+	ticker.Reset(time.Millisecond)
+	<-ticker.C
+	ticker.Reset(cfg.UpdateInterval)
+
+	// modify OK
 	res := ldapserver.NewModifyResponse(ldapserver.LDAPResultSuccess)
 	w.Write(res)
 

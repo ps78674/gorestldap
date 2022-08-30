@@ -44,6 +44,7 @@ type Config struct {
 type Backend interface {
 	ReadConfig([]byte) error
 	GetData() ([]data.User, []data.Group, error)
+	UpdateData(interface{}, interface{}) error
 }
 
 const (
@@ -230,10 +231,14 @@ func main() {
 		Groups: groups,
 	}
 
-	//Create a new LDAP Server
+	// create new LDAP Server
 	ldapServer := ldapserver.NewServer()
 
-	//Create routes bindings
+	// create ticker
+	ticker := time.NewTicker(cfg.UpdateInterval)
+	defer ticker.Stop()
+
+	// create route bindings
 	routes := ldapserver.NewRouteMux()
 	routes.Bind(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		handleBind(w, m, &entries)
@@ -245,11 +250,11 @@ func main() {
 	routes.Compare(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 		handleCompare(w, m, &entries)
 	})
-	// routes.Modify(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-	// 	handleModify(w, m, &entries, &backend)
-	// })
+	routes.Modify(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
+		handleModify(w, m, &entries, backend, ticker)
+	})
 
-	//Attach routes to server
+	// attach routes to server
 	ldapServer.Handle(routes)
 
 	// listen and serve
@@ -265,10 +270,6 @@ func main() {
 	if err := <-chErr; err != nil {
 		log.Fatalf("error starting server: %s", err)
 	}
-
-	// create ticker
-	ticker := time.NewTicker(cfg.UpdateInterval)
-	defer ticker.Stop()
 
 	// http callback server
 	var httpServer fasthttp.Server
@@ -289,21 +290,24 @@ func main() {
 	// update data every cfg.UpdateInterval
 	go func() {
 		for range ticker.C {
-			log.Info("updating entries data")
+			func() {
+				log.Info("updating entries data")
 
-			log.Debug("getting backend data")
-			users, groups, err := backend.GetData()
-			if err != nil {
-				log.Errorf("error getting data: %s", err)
-				continue
-			}
+				entries.Lock()
+				defer entries.Unlock()
 
-			log.Debug("updating entries")
-			entries.Lock()
-			entries.Users = users
-			entries.Groups = groups
-			entries.Unlock()
-			log.Debug("entries updated")
+				log.Debug("getting backend data")
+				users, groups, err := backend.GetData()
+				if err != nil {
+					log.Errorf("error getting data: %s", err)
+					return
+				}
+
+				entries.Users = users
+				entries.Groups = groups
+
+				log.Debug("entries updated")
+			}()
 		}
 	}()
 

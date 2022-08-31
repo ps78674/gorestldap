@@ -619,7 +619,8 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 	defer entries.RUnlock()
 
 	r := m.GetCompareRequest()
-	log.Infof("client [%d]: compare dn=\"%s\" attr=\"%s\"", m.Client.Numero(), r.Entry(), r.Ava().AttributeDesc())
+	attrName := string(r.Ava().AttributeDesc())
+	log.Infof("client [%d]: compare dn=\"%s\" attr=\"%s\"", m.Client.Numero(), r.Entry(), attrName)
 
 	// check compare entry dn
 	compareEntry := normalizeEntry(string(r.Entry()))
@@ -632,7 +633,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 	}
 
 	// compare for entryDN is not supported
-	if strings.ToLower(string(r.Ava().AttributeDesc())) == "entrydn" {
+	if strings.ToLower(attrName) == "entrydn" {
 		diagMessage := "compare over entrydn is not supported"
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultUnwillingToPerform)
 		res.SetDiagnosticMessage(diagMessage)
@@ -657,12 +658,11 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 		return
 	}
 
-	var attrExist, entryFound, compareOK bool
+	var entry interface{}
 	compareEntryAttr, compareEntryName, compareEntrySuffix := getEntryAttrNameSuffix(compareEntry)
 	switch {
 	case compareEntry == cfg.BaseDN:
-		entryFound = true
-		attrExist, compareOK = doCompare(entries.Domain, string(r.Ava().AttributeDesc()), string(r.Ava().AssertionValue()))
+		entry = entries.Domain
 	case strings.HasPrefix(compareEntry, "ou=") && compareEntrySuffix == cfg.BaseDN:
 		for _, ou := range entries.OUs {
 			// handle stop signal
@@ -677,8 +677,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 				continue
 			}
 
-			entryFound = true
-			attrExist, compareOK = doCompare(ou, string(r.Ava().AttributeDesc()), string(r.Ava().AssertionValue()))
+			entry = ou
 			break
 		}
 	case compareEntrySuffix == "ou="+cfg.UsersOUName+","+cfg.BaseDN:
@@ -702,8 +701,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 				continue
 			}
 
-			entryFound = true
-			attrExist, compareOK = doCompare(user, string(r.Ava().AttributeDesc()), string(r.Ava().AssertionValue()))
+			entry = user
 			break
 		}
 	case strings.HasPrefix(compareEntry, "cn=") && compareEntrySuffix == "ou="+cfg.GroupsOUName+","+cfg.BaseDN:
@@ -720,30 +718,42 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 				continue
 			}
 
-			entryFound = true
-			attrExist, compareOK = doCompare(group, string(r.Ava().AttributeDesc()), string(r.Ava().AssertionValue()))
+			entry = group
 			break
 		}
 	}
 
-	switch {
-	case !entryFound:
+	// entry not found
+	if entry == nil {
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultNoSuchObject)
 		w.Write(res)
-		log.Infof("client [%d]: compare entry not found", m.Client.Numero())
-	case !attrExist:
-		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultUndefinedAttributeType)
+
+		log.Errorf("client [%d]: compare error: target entry not found", m.Client.Numero())
+		return
+	}
+
+	// compare
+	ok, err := doCompare(entry, attrName, string(r.Ava().AssertionValue()))
+	if err != nil {
+		res := ldapserver.NewCompareResponse(err.(LDAPError).ResultCode)
 		w.Write(res)
-		log.Infof("client [%d]: compare entry does not have requested attribute", m.Client.Numero())
-	case !compareOK:
+
+		log.Errorf("client [%d]: compare error: %s", m.Client.Numero(), err)
+		return
+	}
+	if !ok {
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareFalse)
 		w.Write(res)
+
 		log.Infof("client [%d]: compare result=FALSE", m.Client.Numero())
-	case compareOK:
-		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareTrue)
-		w.Write(res)
-		log.Infof("client [%d]: compare result=TRUE", m.Client.Numero())
+		return
 	}
+
+	// compare TRUE
+	res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareTrue)
+	w.Write(res)
+
+	log.Infof("client [%d]: compare result=TRUE", m.Client.Numero())
 }
 
 // handle modify

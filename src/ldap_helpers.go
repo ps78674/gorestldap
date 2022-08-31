@@ -21,6 +21,18 @@ type LDAPError struct {
 	error
 }
 
+var (
+	errLDAPNoAttr error = LDAPError{
+		ldap.ResultCodeUndefinedAttributeType,
+		errors.New("target entry does not have requested attribute"),
+	}
+
+	errLDAPMultiValue error = LDAPError{
+		ldap.ResultCodeInvalidAttributeSyntax,
+		errors.New("attempt to set multiple values on single value attribute"),
+	}
+)
+
 // isCorrectDn checks dn syntax
 func isCorrectDn(s string) bool {
 	var allowedAttrs = []string{"cn", "uid", "ou", "dc"}
@@ -169,22 +181,29 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 }
 
 // doCompare checks if object 'o' have attr 'attrName' with value 'attrValue'
-func doCompare(o interface{}, attrName string, attrValue string) (bool /* attrExist */, bool /* ok */) {
+func doCompare(o interface{}, attrName string, attrValue string) (bool, error) {
 	fieldValue := reflect.ValueOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
 	if !fieldValue.IsValid() {
-		return false, false
+		return false, errLDAPNoAttr
 	}
 
 	fieldType, _ := reflect.TypeOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
+	if _, ok := fieldType.Tag.Lookup("ldap_skip"); ok {
+		return false, errLDAPNoAttr
+	}
 
 	switch val := fieldValue.Interface().(type) {
+	case uint:
+		if fmt.Sprint(val) == attrValue {
+			return true, nil
+		}
 	case string:
 		if _, ok := fieldType.Tag.Lookup("ldap_case_sensitive_value"); !ok {
 			val = strings.ToLower(val)
 			attrValue = strings.ToLower(attrValue)
 		}
 		if val == attrValue {
-			return true, true
+			return true, nil
 		}
 	case []string:
 		for _, v := range val {
@@ -193,12 +212,12 @@ func doCompare(o interface{}, attrName string, attrValue string) (bool /* attrEx
 				attrValue = strings.ToLower(attrValue)
 			}
 			if v == attrValue {
-				return true, true
+				return true, nil
 			}
 		}
 	}
 
-	return true, false
+	return false, nil
 }
 
 // create slice of ldap attributes
@@ -231,11 +250,6 @@ func doModify(o interface{}, attrName string, values []ldap.AttributeValue) erro
 	objCopy := reflect.New(objType).Elem()
 	objCopy.Set(obj)
 
-	var errLDAPNoAttr error = LDAPError{
-		ldap.ResultCodeUndefinedAttributeType,
-		errors.New("target entry does not have requested attribute"),
-	}
-
 	fieldValue := objCopy.FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
 	if !fieldValue.IsValid() {
 		return errLDAPNoAttr
@@ -244,11 +258,6 @@ func doModify(o interface{}, attrName string, values []ldap.AttributeValue) erro
 	fieldType, _ := objType.FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
 	if _, ok := fieldType.Tag.Lookup("ldap_skip"); ok {
 		return errLDAPNoAttr
-	}
-
-	var errLDAPMultiValue error = LDAPError{
-		ldap.ResultCodeInvalidAttributeSyntax,
-		errors.New("attempt to set multiple values on single value attribute"),
 	}
 
 	switch fieldValue.Interface().(type) {

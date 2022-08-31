@@ -87,6 +87,10 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 		if fieldValue.IsValid() {
 			fieldType, _ := reflect.TypeOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
 			switch val := fieldValue.Interface().(type) {
+			case uint:
+				if fmt.Sprint(val) == attrValue {
+					return true, nil
+				}
 			case string:
 				if _, ok := fieldType.Tag.Lookup("ldap_case_sensitive_value"); !ok {
 					val = strings.ToLower(val)
@@ -152,6 +156,10 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 				si, _ := _attrValue.(ldap.SubstringInitial)
 				attrValue := string(si)
 				switch val := fieldValue.Interface().(type) {
+				case uint:
+					if strings.HasPrefix(fmt.Sprint(val), attrValue) {
+						return true, nil
+					}
 				case string:
 					if _, ok := fieldType.Tag.Lookup("ldap_case_sensitive_value"); !ok {
 						val = strings.ToLower(val)
@@ -223,14 +231,15 @@ func doCompare(o interface{}, attrName string, attrValue string) (bool, error) {
 // create slice of ldap attributes
 func newLDAPAttributeValues(in interface{}) (out []ldap.AttributeValue) {
 	switch in := in.(type) {
+	case uint:
+		out = append(out, ldap.AttributeValue(fmt.Sprint(in)))
+	case string:
+		out = append(out, ldap.AttributeValue(in))
 	case []string:
 		for _, v := range in {
 			out = append(out, ldap.AttributeValue(v))
 		}
-	case string:
-		out = append(out, ldap.AttributeValue(in))
 	}
-
 	return
 }
 
@@ -300,7 +309,8 @@ func getAllAttrsAndValues(o interface{}, operationalOnly bool) (ret []attrValues
 			continue
 		}
 
-		attr := rValue.Type().Field(i).Tag.Get("json")
+		tagValue := rValue.Type().Field(i).Tag.Get("json")
+		attr, _, _ := strings.Cut(tagValue, ",")
 		if attr == "" {
 			attr = rValue.Type().Field(i).Name
 		}

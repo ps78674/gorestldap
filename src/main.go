@@ -79,12 +79,12 @@ func (c *Config) init() error {
 	// parse cli options
 	opts, err := docopt.ParseArgs(usage, nil, versionString)
 	if err != nil {
-		return fmt.Errorf("error parsing options: %s\n", err)
+		return fmt.Errorf("error parsing options: %s", err)
 	}
 
 	// bind args to config struct
 	if e := opts.Bind(&c); e != nil {
-		return fmt.Errorf("error binding option values: %s\n", e)
+		return fmt.Errorf("error binding option values: %s", e)
 	}
 
 	// read config from file

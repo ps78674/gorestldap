@@ -200,12 +200,10 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 
 	// check for unsupported critical controls
 	if gotUCControl && cfg.RespectCritical {
-		diagMessage := "got unsupported critical controls, aborting"
 		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnavailableCriticalExtension)
-		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
-		log.Errorf("client [%d]: search error: %s", m.Client.Numero(), diagMessage)
+		log.Errorf("client [%d]: search error: got unsupported critical controls, aborting", m.Client.Numero())
 		return
 	}
 
@@ -580,12 +578,10 @@ end:
 		// encode new paged results control
 		v, err := ldap.WritePagedResultsControl(ldap.INTEGER(0), cpCookie)
 		if err != nil {
-			diagMessage := fmt.Sprintf("error encoding pagedResultsControl: %s", err)
-			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultOther)
-			res.SetDiagnosticMessage(diagMessage)
+			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultProtocolError)
 			w.Write(res)
 
-			log.Errorf("client [%d]: search error: %s", m.Client.Numero(), diagMessage)
+			log.Errorf("client [%d]: search error: error encoding pagedResultsControl: %s", m.Client.Numero(), err)
 			return
 		}
 
@@ -767,12 +763,10 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	// check modify entry dn
 	modifyEntry := normalizeEntry(string(r.Object()))
 	if !isCorrectDn(modifyEntry) {
-		diagMessage := fmt.Sprintf("wrong dn '%s'", r.Object())
 		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultInvalidDNSyntax)
-		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
-		log.Errorf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
+		log.Errorf("client [%d]: modify error: wrong dn '%s'", m.Client.Numero(), r.Object())
 		return
 	}
 
@@ -905,7 +899,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 		return
 	}
 
-	// force update entries
+	// get updated entries
 	ticker.Reset(time.Millisecond)
 	<-ticker.C
 	ticker.Reset(cfg.UpdateInterval)

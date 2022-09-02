@@ -4,8 +4,8 @@
 * fix modify - backends should support updating data | return modify err
 fix tags lookups - ldap_skip, ldap_case_sensitive_value -> `ldap:"skip,case_sensitive"`
 make entrydn comparable
-fix compare (return err, uint etc)
++ fix compare (return err, uint etc)
 refactor handleSearch
 add debug logs
 fix global vars
-refactor getAttrValues(), getAllAttrsAndValues() - FieldByNameFunc ??
++ refactor createSearchResultEntry() - remove getAttrValues(), getAllAttrsAndValues()

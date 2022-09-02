@@ -11,11 +11,6 @@ import (
 	ldap "github.com/ps78674/goldap/message"
 )
 
-type attrValues struct {
-	Attr   string
-	Values interface{}
-}
-
 type LDAPError struct {
 	ResultCode int
 	error
@@ -198,47 +193,7 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	return false, nil
 }
 
-// get all attributes
-func getAllAttrsAndValues(o interface{}, operationalOnly bool) (ret []attrValues) {
-	rValue := reflect.ValueOf(o)
-	for i := 0; i < rValue.NumField(); i++ {
-		if _, ok := rValue.Type().Field(i).Tag.Lookup("ldap_skip"); ok {
-			continue
-		}
-		if _, ok := rValue.Type().Field(i).Tag.Lookup("ldap_operational"); (!ok && operationalOnly) || (ok && !operationalOnly) {
-			continue
-		}
-
-		tagValue := rValue.Type().Field(i).Tag.Get("json")
-		attr, _, _ := strings.Cut(tagValue, ",")
-		if attr == "" {
-			attr = rValue.Type().Field(i).Name
-		}
-
-		values := rValue.Field(i).Interface()
-
-		ret = append(ret, attrValues{Attr: attr, Values: values})
-	}
-
-	return ret
-}
-
-// get struct field values by field name
-func getAttrValues(o interface{}, fieldName string) (values interface{}) {
-	field, _ := reflect.TypeOf(o).FieldByNameFunc(func(n string) bool { return strings.EqualFold(n, fieldName) })
-	if _, ok := field.Tag.Lookup("ldap_skip"); ok {
-		return
-	}
-
-	rValue := reflect.ValueOf(o).FieldByName(field.Name)
-	if rValue.IsValid() {
-		values = rValue.Interface()
-	}
-
-	return
-}
-
-// create slice of ldap attributes
+// newLDAPAttributeValues creates ldap attributes from an interface
 func newLDAPAttributeValues(in interface{}) (out []ldap.AttributeValue) {
 	switch in := in.(type) {
 	case uint:
@@ -253,36 +208,60 @@ func newLDAPAttributeValues(in interface{}) (out []ldap.AttributeValue) {
 	return
 }
 
-func createSearchResultEntry(o interface{}, attrs ldap.AttributeSelection, entryName string) (e ldap.SearchResultEntry) {
+// createSearchEntry creates ldap.SearchResultEntry from 'o' with attributes 'attrs' end name 'entryName'
+func createSearchEntry(o interface{}, attrs ldap.AttributeSelection, entryName string) (e ldap.SearchResultEntry) {
 	// set entry name
 	e.SetObjectName(entryName)
 
-	// // if no specific attributes requested -> add all attributes
+	// if no attrs set -> use * (all)
 	if len(attrs) == 0 {
-		for _, v := range getAllAttrsAndValues(o, false) {
-			e.AddAttribute(ldap.AttributeDescription(v.Attr), newLDAPAttributeValues(v.Values)...)
-		}
+		attrs = append(attrs, "*")
 	}
 
-	// if some attributes requested -> add only those attributes
-	if len(attrs) > 0 {
-		for _, a := range attrs {
-			switch attr := strings.ToLower(string(a)); attr {
-			case "entrydn":
-				e.AddAttribute("entryDN", ldap.AttributeValue(entryName))
-			case "+":
-				for _, v := range getAllAttrsAndValues(o, true) {
-					e.AddAttribute(ldap.AttributeDescription(v.Attr), newLDAPAttributeValues(v.Values)...)
+	for _, a := range attrs {
+		switch attr := strings.ToLower(string(a)); attr {
+		case "entrydn":
+			e.AddAttribute("entryDN", ldap.AttributeValue(entryName))
+		case "+": // operational only
+			rValue := reflect.ValueOf(o)
+			for i := 0; i < rValue.NumField(); i++ {
+				field := rValue.Type().Field(i)
+				if _, ok := field.Tag.Lookup("ldap_skip"); ok {
+					continue
 				}
-			case "*":
-				for _, v := range getAllAttrsAndValues(o, false) {
-					e.AddAttribute(ldap.AttributeDescription(v.Attr), newLDAPAttributeValues(v.Values)...)
+				if _, ok := field.Tag.Lookup("ldap_operational"); !ok {
+					continue
 				}
-			default:
-				values := getAttrValues(o, attr)
-				if values != nil {
-					e.AddAttribute(ldap.AttributeDescription(a), newLDAPAttributeValues(values)...)
+				tagValue := field.Tag.Get("json")
+				attrName, _, _ := strings.Cut(tagValue, ",")
+				e.AddAttribute(ldap.AttributeDescription(attrName), newLDAPAttributeValues(rValue.Field(i).Interface())...)
+			}
+		case "*": // all except operational
+			rValue := reflect.ValueOf(o)
+			for i := 0; i < rValue.NumField(); i++ {
+				field := rValue.Type().Field(i)
+				if _, ok := field.Tag.Lookup("ldap_skip"); ok {
+					continue
 				}
+				if _, ok := field.Tag.Lookup("ldap_operational"); ok {
+					continue
+				}
+				tagValue := field.Tag.Get("json")
+				attrName, _, _ := strings.Cut(tagValue, ",")
+				e.AddAttribute(ldap.AttributeDescription(attrName), newLDAPAttributeValues(rValue.Field(i).Interface())...)
+			}
+		default:
+			field, ok := reflect.TypeOf(o).FieldByNameFunc(func(n string) bool { return strings.EqualFold(n, attr) })
+			if !ok {
+				continue
+			}
+			// TODO: lookupTagValue(tag, tagName, tagValue)
+			if _, ok := field.Tag.Lookup("ldap_skip"); ok {
+				continue
+			}
+			fieldValue := reflect.ValueOf(o).FieldByName(field.Name)
+			if fieldValue.IsValid() {
+				e.AddAttribute(ldap.AttributeDescription(a), newLDAPAttributeValues(fieldValue.Interface())...)
 			}
 		}
 	}

@@ -278,7 +278,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 				sizeLimitReached = true
 				goto end
 			} else if ok {
-				e := createSearchResultEntry(entries.Domain, r.Attributes(), cfg.BaseDN)
+				e := createSearchEntry(entries.Domain, r.Attributes(), cfg.BaseDN)
 				w.Write(e)
 
 				searchControl.sent++
@@ -376,7 +376,7 @@ ous:
 			goto end
 		}
 
-		e := createSearchResultEntry(entries.OUs[i], r.Attributes(), entryName)
+		e := createSearchEntry(entries.OUs[i], r.Attributes(), entryName)
 		w.Write(e)
 
 		searchControl.sent++
@@ -461,7 +461,7 @@ users:
 			goto end
 		}
 
-		e := createSearchResultEntry(entries.Users[i], r.Attributes(), entryName)
+		e := createSearchEntry(entries.Users[i], r.Attributes(), entryName)
 		w.Write(e)
 
 		searchControl.sent++
@@ -546,7 +546,7 @@ groups:
 			goto end
 		}
 
-		e := createSearchResultEntry(entries.Groups[i], r.Attributes(), entryName)
+		e := createSearchEntry(entries.Groups[i], r.Attributes(), entryName)
 		w.Write(e)
 
 		searchControl.sent++

@@ -63,12 +63,14 @@ func isCorrectDn(s string) bool {
 // getEntryAttrNameSuffix returns entry attribute, name and suffix
 // e.g. for entry cn=admin,ou=users,dc=example,dc=com it would return ['cn', 'admin', 'ou=users,dc=example,dc=com']
 func getEntryAttrNameSuffix(entry string) (attr, name, suffix string) {
-	split := strings.SplitN(entry, ",", 2)
-	attrValuePair := strings.SplitN(split[0], "=", 2)
+	entrySuffixPair := strings.SplitN(entry, ",", 2)
+	attrValuePair := strings.SplitN(entrySuffixPair[0], "=", 2)
 	attr = attrValuePair[0]
-	name = attrValuePair[1]
-	if len(split) == 2 {
-		suffix = split[1]
+	if len(attrValuePair) == 2 {
+		name = attrValuePair[1]
+	}
+	if len(entrySuffixPair) == 2 {
+		suffix = entrySuffixPair[1]
 	}
 	return
 }
@@ -208,7 +210,7 @@ func newLDAPAttributeValues(in interface{}) (out []ldap.AttributeValue) {
 	return
 }
 
-// createSearchEntry creates ldap.SearchResultEntry from 'o' with attributes 'attrs' end name 'entryName'
+// createSearchEntry creates ldap.SearchResultEntry from 'o' with attributes 'attrs' and name 'entryName'
 func createSearchEntry(o interface{}, attrs ldap.AttributeSelection, entryName string) (e ldap.SearchResultEntry) {
 	// set entry name
 	e.SetObjectName(entryName)

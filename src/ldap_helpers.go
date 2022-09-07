@@ -48,12 +48,13 @@ func isCorrectDn(s string) bool {
 
 	for _, sub := range strings.Split(s, ",") {
 		var found bool
-		attrValuePair := strings.SplitN(sub, "=", 2)
-		if len(attrValuePair) < 2 {
+
+		attrName, _, found := strings.Cut(sub, "=")
+		if !found {
 			return false
 		}
 		for _, attr := range allowedAttrs {
-			if attrValuePair[0] == attr {
+			if attrName == attr {
 				found = true
 				break
 			}
@@ -66,18 +67,12 @@ func isCorrectDn(s string) bool {
 	return true
 }
 
-// getEntryAttrNameSuffix returns entry attribute, name and suffix
+// getEntryAttrValueSuffix returns entry attribute, its value and suffix
 // e.g. for entry cn=admin,ou=users,dc=example,dc=com it would return ['cn', 'admin', 'ou=users,dc=example,dc=com']
-func getEntryAttrNameSuffix(entry string) (attr, name, suffix string) {
-	entrySuffixPair := strings.SplitN(entry, ",", 2)
-	attrValuePair := strings.SplitN(entrySuffixPair[0], "=", 2)
-	attr = attrValuePair[0]
-	if len(attrValuePair) == 2 {
-		name = attrValuePair[1]
-	}
-	if len(entrySuffixPair) == 2 {
-		suffix = entrySuffixPair[1]
-	}
+func getEntryAttrValueSuffix(entry string) (attr, value, suffix string) {
+	var attrValue string
+	attrValue, suffix, _ = strings.Cut(entry, ",")
+	attr, value, _ = strings.Cut(attrValue, "=")
 	return
 }
 
@@ -108,7 +103,7 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 		if strings.ToLower(attrName) == "entrydn" {
 			entry := normalizeEntry(string(filter.AssertionValue()))
 			if strings.HasSuffix(entry, cfg.BaseDN) {
-				attrName, attrValue, _ = getEntryAttrNameSuffix(entry)
+				attrName, attrValue, _ = getEntryAttrValueSuffix(entry)
 			}
 		}
 

@@ -195,7 +195,7 @@ func main() {
 	}
 
 	// setup entries
-	_, dc, _ := getEntryAttrNameSuffix(cfg.BaseDN)
+	_, dc, _ := getEntryAttrValueSuffix(cfg.BaseDN)
 	var domain = data.Domain{
 		EntryUUID:       newEntryUUID(dc),
 		HasSubordinates: "TRUE",

@@ -60,7 +60,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *dat
 		return
 	}
 
-	bindEntryAttr, bindEntryName, bindEntrySuffix := getEntryAttrNameSuffix(bindEntry)
+	bindEntryAttr, bindEntryName, bindEntrySuffix := getEntryAttrValueSuffix(bindEntry)
 
 	userData := data.User{}
 	if bindEntrySuffix != "ou="+cfg.UsersOUName+","+cfg.BaseDN {
@@ -657,7 +657,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 	}
 
 	var entry interface{}
-	compareEntryAttr, compareEntryName, compareEntrySuffix := getEntryAttrNameSuffix(compareEntry)
+	compareEntryAttr, compareEntryName, compareEntrySuffix := getEntryAttrValueSuffix(compareEntry)
 	switch {
 	case compareEntry == cfg.BaseDN:
 		entry = entries.Domain
@@ -799,7 +799,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	}
 
 	var oldEntry interface{}
-	modifyEntryAttr, modifyEntryName, modifyEntrySuffix := getEntryAttrNameSuffix(modifyEntry)
+	modifyEntryAttr, modifyEntryName, modifyEntrySuffix := getEntryAttrValueSuffix(modifyEntry)
 	switch {
 	case modifyEntrySuffix == "ou="+cfg.UsersOUName+","+cfg.BaseDN:
 		for _, user := range entries.Users {

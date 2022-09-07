@@ -298,13 +298,16 @@ func createSearchEntry(o interface{}, attrs []string, entryName string) (e ldap.
 
 // doCompare checks if object 'o' have attr 'attrName' with value 'attrValue'
 func doCompare(o interface{}, attrName string, attrValue string) (bool, error) {
-	fieldValue := reflect.ValueOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
-	if !fieldValue.IsValid() {
+	field, found := reflect.TypeOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
+	if !found {
+		return false, errLDAPNoAttr
+	}
+	if _, ok := field.Tag.Lookup("ldap_skip"); ok {
 		return false, errLDAPNoAttr
 	}
 
-	fieldType, _ := reflect.TypeOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
-	if _, ok := fieldType.Tag.Lookup("ldap_skip"); ok {
+	fieldValue := reflect.ValueOf(o).FieldByName(field.Name)
+	if !fieldValue.IsValid() {
 		return false, errLDAPNoAttr
 	}
 
@@ -314,7 +317,7 @@ func doCompare(o interface{}, attrName string, attrValue string) (bool, error) {
 			return true, nil
 		}
 	case string:
-		if _, ok := fieldType.Tag.Lookup("ldap_case_sensitive_value"); !ok {
+		if _, ok := field.Tag.Lookup("ldap_case_sensitive_value"); !ok {
 			val = strings.ToLower(val)
 			attrValue = strings.ToLower(attrValue)
 		}
@@ -323,7 +326,7 @@ func doCompare(o interface{}, attrName string, attrValue string) (bool, error) {
 		}
 	case []string:
 		for _, v := range val {
-			if _, ok := fieldType.Tag.Lookup("ldap_case_sensitive_value"); !ok {
+			if _, ok := field.Tag.Lookup("ldap_case_sensitive_value"); !ok {
 				v = strings.ToLower(v)
 				attrValue = strings.ToLower(attrValue)
 			}
@@ -341,16 +344,20 @@ func doModify(o interface{}, attrName string, values []ldap.AttributeValue) erro
 	root := reflect.ValueOf(o).Elem()
 	obj := root.Elem()
 	objType := obj.Type()
-	objCopy := reflect.New(objType).Elem()
-	objCopy.Set(obj)
 
-	fieldValue := objCopy.FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
-	if !fieldValue.IsValid() {
+	field, found := objType.FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
+	if !found {
+		return errLDAPNoAttr
+	}
+	if _, ok := field.Tag.Lookup("ldap_skip"); ok {
 		return errLDAPNoAttr
 	}
 
-	fieldType, _ := objType.FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
-	if _, ok := fieldType.Tag.Lookup("ldap_skip"); ok {
+	objCopy := reflect.New(objType).Elem()
+	objCopy.Set(obj)
+
+	fieldValue := objCopy.FieldByName(field.Name)
+	if !fieldValue.IsValid() {
 		return errLDAPNoAttr
 	}
 

@@ -6,7 +6,7 @@ fix tags lookups - ldap_skip, ldap_case_sensitive_value -> `ldap:"skip,case_sens
 make entrydn comparable
 + fix compare (return err, uint etc)
 + refactor handleSearchDSE(), handleSearch(), applySearchFilter()
-fix FieldByNameFunc() for field, fieldValue in doCompare(), doModify()
++ fix FieldByNameFunc() for field, fieldValue in doCompare(), doModify()
 add debug logs
 fix global vars
 + refactor createSearchResultEntry() - remove getAttrValues(), getAllAttrsAndValues()

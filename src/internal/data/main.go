@@ -11,27 +11,27 @@ type DSE struct {
 }
 
 type Domain struct {
-	EntryUUID       string   `json:"entryUUID,omitempty" ldap_operational:""`
-	HasSubordinates string   `json:"hasSubordinates,omitempty" ldap_operational:""`
+	EntryUUID       string   `json:"entryUUID,omitempty" ldap:"operational"`
+	HasSubordinates string   `json:"hasSubordinates,omitempty" ldap:"operational"`
 	ObjectClass     []string `json:"objectClass,omitempty"`
-	DC              string   `ldap_skip:""`
+	DC              string   `ldap:"skip"`
 }
 
 type OU struct {
-	EntryUUID       string   `json:"entryUUID,omitempty" ldap_operational:""`
-	HasSubordinates string   `json:"hasSubordinates,omitempty" ldap_operational:""`
+	EntryUUID       string   `json:"entryUUID,omitempty" ldap:"operational"`
+	HasSubordinates string   `json:"hasSubordinates,omitempty" ldap:"operational"`
 	ObjectClass     []string `json:"objectClass,omitempty"`
-	OU              string   `ldap_skip:""`
+	OU              string   `ldap:"skip"`
 }
 
 type User struct {
-	LDAPAdmin       bool     `json:"ldapAdmin,omitempty" ldap_skip:""`
-	EntryUUID       string   `json:"entryUUID,omitempty" ldap_operational:""`
-	HasSubordinates string   `json:"hasSubordinates,omitempty" ldap_operational:""`
+	LDAPAdmin       bool     `json:"ldapAdmin,omitempty" ldap:"skip"`
+	EntryUUID       string   `json:"entryUUID,omitempty" ldap:"operational"`
+	HasSubordinates string   `json:"hasSubordinates,omitempty" ldap:"operational"`
 	ObjectClass     []string `json:"objectClass,omitempty"`
 	CN              string   `json:"cn,omitempty"`
 	UIDNumber       uint     `json:"uidNumber,omitempty"`
-	UserPassword    string   `json:"userPassword,omitempty" ldap_case_sensitive_value:""`
+	UserPassword    string   `json:"userPassword,omitempty" ldap:"case_sensitive_value"`
 	GIDNumber       uint     `json:"gidNumber,omitempty"`
 	UID             string   `json:"uid,omitempty"`
 	DisplayName     string   `json:"displayName,omitempty"`
@@ -44,8 +44,8 @@ type User struct {
 }
 
 type Group struct {
-	EntryUUID       string   `json:"entryUUID,omitempty" ldap_operational:""`
-	HasSubordinates string   `json:"hasSubordinates,omitempty" ldap_operational:""`
+	EntryUUID       string   `json:"entryUUID,omitempty" ldap:"operational"`
+	HasSubordinates string   `json:"hasSubordinates,omitempty" ldap:"operational"`
 	ObjectClass     []string `json:"objectClass,omitempty"`
 	CN              string   `json:"cn,omitempty"`
 	GIDNumber       uint     `json:"gidNumber,omitempty"`

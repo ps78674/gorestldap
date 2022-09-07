@@ -2,7 +2,7 @@
 * refactor doCompare() - - tags, ToLower | EqualFold
 + fix callback - HEAD on listen/callback with header Authorization: Token 12345
 * fix modify - backends should support updating data | return modify err
-fix tags lookups - ldap_skip, ldap_case_sensitive_value -> `ldap:"skip,case_sensitive"`
++ fix tags lookups - ldap_skip, ldap_case_sensitive_value -> `ldap:"skip,case_sensitive"`
 make entrydn comparable
 + fix compare (return err, uint etc)
 + refactor handleSearchDSE(), handleSearch(), applySearchFilter()

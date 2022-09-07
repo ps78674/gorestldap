@@ -81,6 +81,23 @@ func getEntryAttrNameSuffix(entry string) (attr, name, suffix string) {
 	return
 }
 
+// tagValueContains returns true if StructTag's 'tag' key 'tagName' contains value 'tagValue'
+func tagValueContains(tag reflect.StructTag, tagName, tagValue string) bool {
+	val, ok := tag.Lookup(tagName)
+	if !ok {
+		return false
+	}
+	var found bool
+	for _, s := range strings.Split(val, ",") {
+		if s != tagValue {
+			continue
+		}
+		found = true
+		break
+	}
+	return found
+}
+
 // applySearchFilter returns true if object 'o' fits filter 'f'
 func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	switch filter := f.(type) {
@@ -111,7 +128,7 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 				return true, nil
 			}
 		case string:
-			if _, ok := field.Tag.Lookup("ldap_case_sensitive_value"); !ok {
+			if !tagValueContains(field.Tag, "ldap", "case_sensitive_value") {
 				val = strings.ToLower(val)
 				attrValue = strings.ToLower(attrValue)
 			}
@@ -120,7 +137,7 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 			}
 		case []string:
 			for _, v := range val {
-				if _, ok := field.Tag.Lookup("ldap_case_sensitive_value"); !ok {
+				if !tagValueContains(field.Tag, "ldap", "case_sensitive_value") {
 					v = strings.ToLower(v)
 					attrValue = strings.ToLower(attrValue)
 				}
@@ -154,7 +171,6 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 			return true, nil
 		}
 	case ldap.FilterPresent:
-		// TODO: entryDN not used for DSE entry
 		attrName := fmt.Sprintf("%v", filter)
 		if strings.ToLower(attrName) == "entrydn" {
 			return true, nil
@@ -193,7 +209,7 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 					return true, nil
 				}
 			case string:
-				if _, ok := field.Tag.Lookup("ldap_case_sensitive_value"); !ok {
+				if !tagValueContains(field.Tag, "ldap", "case_sensitive_value") {
 					val = strings.ToLower(val)
 					attrValue = strings.ToLower(attrValue)
 				}
@@ -202,7 +218,7 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 				}
 			case []string:
 				for _, v := range val {
-					if _, ok := field.Tag.Lookup("ldap_case_sensitive_value"); !ok {
+					if !tagValueContains(field.Tag, "ldap", "case_sensitive_value") {
 						v = strings.ToLower(v)
 						attrValue = strings.ToLower(attrValue)
 					}
@@ -253,10 +269,10 @@ func createSearchEntry(o interface{}, attrs []string, entryName string) (e ldap.
 			rValue := reflect.ValueOf(o)
 			for i := 0; i < rValue.NumField(); i++ {
 				field := rValue.Type().Field(i)
-				if _, ok := field.Tag.Lookup("ldap_skip"); ok {
+				if tagValueContains(field.Tag, "ldap", "skip") {
 					continue
 				}
-				if _, ok := field.Tag.Lookup("ldap_operational"); !ok {
+				if !tagValueContains(field.Tag, "ldap", "operational") {
 					continue
 				}
 				tagValue := field.Tag.Get("json")
@@ -267,10 +283,10 @@ func createSearchEntry(o interface{}, attrs []string, entryName string) (e ldap.
 			rValue := reflect.ValueOf(o)
 			for i := 0; i < rValue.NumField(); i++ {
 				field := rValue.Type().Field(i)
-				if _, ok := field.Tag.Lookup("ldap_skip"); ok {
+				if tagValueContains(field.Tag, "ldap", "skip") {
 					continue
 				}
-				if _, ok := field.Tag.Lookup("ldap_operational"); ok {
+				if tagValueContains(field.Tag, "ldap", "operational") {
 					continue
 				}
 				tagValue := field.Tag.Get("json")
@@ -282,8 +298,7 @@ func createSearchEntry(o interface{}, attrs []string, entryName string) (e ldap.
 			if !found {
 				continue
 			}
-			// TODO: lookupTagValue(tag, tagName, tagValue)
-			if _, ok := field.Tag.Lookup("ldap_skip"); ok {
+			if tagValueContains(field.Tag, "ldap", "skip") {
 				continue
 			}
 			fieldValue := reflect.ValueOf(o).FieldByName(field.Name)
@@ -302,7 +317,7 @@ func doCompare(o interface{}, attrName string, attrValue string) (bool, error) {
 	if !found {
 		return false, errLDAPNoAttr
 	}
-	if _, ok := field.Tag.Lookup("ldap_skip"); ok {
+	if tagValueContains(field.Tag, "ldap", "skip") {
 		return false, errLDAPNoAttr
 	}
 
@@ -317,7 +332,7 @@ func doCompare(o interface{}, attrName string, attrValue string) (bool, error) {
 			return true, nil
 		}
 	case string:
-		if _, ok := field.Tag.Lookup("ldap_case_sensitive_value"); !ok {
+		if !tagValueContains(field.Tag, "ldap", "case_sensitive_value") {
 			val = strings.ToLower(val)
 			attrValue = strings.ToLower(attrValue)
 		}
@@ -326,7 +341,7 @@ func doCompare(o interface{}, attrName string, attrValue string) (bool, error) {
 		}
 	case []string:
 		for _, v := range val {
-			if _, ok := field.Tag.Lookup("ldap_case_sensitive_value"); !ok {
+			if !tagValueContains(field.Tag, "ldap", "case_sensitive_value") {
 				v = strings.ToLower(v)
 				attrValue = strings.ToLower(attrValue)
 			}
@@ -349,7 +364,7 @@ func doModify(o interface{}, attrName string, values []ldap.AttributeValue) erro
 	if !found {
 		return errLDAPNoAttr
 	}
-	if _, ok := field.Tag.Lookup("ldap_skip"); ok {
+	if tagValueContains(field.Tag, "ldap", "skip") {
 		return errLDAPNoAttr
 	}
 

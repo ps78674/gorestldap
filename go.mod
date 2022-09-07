@@ -3,6 +3,7 @@ module github.com/ps78674/gorestldap
 go 1.18
 
 require (
+	github.com/google/uuid v1.3.0
 	github.com/ps78674/docopt.go v0.0.0-20220706173634-bb0893fa72cc
 	github.com/ps78674/goldap v0.0.0-20210727122805-99df957a6c80
 	github.com/ps78674/ldapserver v0.0.0-20220708160806-8f8d875bf8db

@@ -197,30 +197,33 @@ func main() {
 	// setup entries
 	_, dc, _ := getEntryAttrNameSuffix(cfg.BaseDN)
 	var domain = data.Domain{
+		EntryUUID:       newEntryUUID(dc),
+		HasSubordinates: "TRUE",
 		ObjectClass: []string{
 			"top",
 			"domain",
 		},
-		HasSubordinates: "TRUE",
-		DC:              dc,
+		DC: dc,
 	}
 
 	var ous = []data.OU{
 		data.OU{
+			EntryUUID:       newEntryUUID(cfg.UsersOUName),
+			HasSubordinates: "TRUE",
 			ObjectClass: []string{
 				"top",
 				"organizationalUnit",
 			},
-			HasSubordinates: "TRUE",
-			OU:              cfg.UsersOUName,
+			OU: cfg.UsersOUName,
 		},
 		data.OU{
+			EntryUUID:       newEntryUUID(cfg.GroupsOUName),
+			HasSubordinates: "TRUE",
 			ObjectClass: []string{
 				"top",
 				"organizationalUnit",
 			},
-			HasSubordinates: "TRUE",
-			OU:              cfg.GroupsOUName,
+			OU: cfg.GroupsOUName,
 		},
 	}
 

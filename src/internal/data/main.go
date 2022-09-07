@@ -2,15 +2,25 @@ package data
 
 import "sync"
 
+type DSE struct {
+	ObjectClass          []string `json:"objectClass"`
+	VendorVersion        string   `json:"vendorVersion"`
+	SupportedLDAPVersion uint     `json:"supportedLDAPVersion"`
+	SupportedControl     []string `json:"supportedControl"`
+	NamingContexts       []string `json:"namingContexts"`
+}
+
 type Domain struct {
-	ObjectClass     []string `json:"objectClass,omitempty"`
+	EntryUUID       string   `json:"entryUUID,omitempty" ldap_operational:""`
 	HasSubordinates string   `json:"hasSubordinates,omitempty" ldap_operational:""`
+	ObjectClass     []string `json:"objectClass,omitempty"`
 	DC              string   `ldap_skip:""`
 }
 
 type OU struct {
-	ObjectClass     []string `json:"objectClass,omitempty"`
+	EntryUUID       string   `json:"entryUUID,omitempty" ldap_operational:""`
 	HasSubordinates string   `json:"hasSubordinates,omitempty" ldap_operational:""`
+	ObjectClass     []string `json:"objectClass,omitempty"`
 	OU              string   `ldap_skip:""`
 }
 

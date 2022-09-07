@@ -39,7 +39,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *dat
 	defer entries.RUnlock()
 
 	r := m.GetBindRequest()
-	log.Infof("client [%d]: bind dn=\"%s\"", m.Client.Numero(), r.Name())
+	log.Infof("client [%d]: bind dn='%s'", m.Client.Numero(), r.Name())
 
 	// only simple authentication supported
 	if r.AuthenticationChoice() != "simple" {
@@ -131,23 +131,24 @@ userNotFound:
 func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	r := m.GetSearchRequest()
 
-	// attrs := []string{}
-	// for _, attr := range r.Attributes() {
-	// 	attrs = append(attrs, string(attr))
-	// }
+	log.Infof("client [%d]: search base='%s' scope=%d filter='%s'", m.Client.Numero(), r.BaseObject(), r.Scope(), r.FilterString())
 
-	log.Infof("client [%d]: search base=\"%s\" scope=%d filter=\"%s\"", m.Client.Numero(), r.BaseObject(), r.Scope(), r.FilterString())
+	searchAttrs := []string{}
+	for _, attr := range r.Attributes() {
+		searchAttrs = append(searchAttrs, string(attr))
+	}
 
-	// TODO: handle search attributes??
-	// log.Infof("client [%d]: search attr=%s", m.Client.Numero(), strings.Join(attrs, " "))
+	log.Infof("client [%d]: search attr=%s", m.Client.Numero(), strings.Join(searchAttrs, " "))
 
-	e := ldapserver.NewSearchResultEntry("")
-	e.AddAttribute("vendorVersion", ldap.AttributeValue(versionString))
-	e.AddAttribute("objectClass", "top", "LDAProotDSE")
-	e.AddAttribute("supportedLDAPVersion", "3")
-	e.AddAttribute("supportedControl", ldap.AttributeValue(ldap.PagedResultsControlOID))
-	e.AddAttribute("namingContexts", ldap.AttributeValue(cfg.BaseDN))
-	// e.AddAttribute("supportedSASLMechanisms", "")
+	rootDSE := data.DSE{
+		ObjectClass:          []string{"top", "LDAProotDSE"},
+		VendorVersion:        versionString,
+		SupportedLDAPVersion: 3,
+		SupportedControl:     []string{string(ldap.PagedResultsControlOID)},
+		NamingContexts:       []string{cfg.BaseDN},
+	}
+
+	e := createSearchEntry(rootDSE, searchAttrs, "")
 
 	w.Write(e)
 	w.Write(ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess))
@@ -162,13 +163,14 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 
 	r := m.GetSearchRequest()
 
-	attrs := []string{}
+	log.Infof("client [%d]: search base='%s' scope=%d filter='%s'", m.Client.Numero(), r.BaseObject(), r.Scope(), r.FilterString())
+
+	searchAttrs := []string{}
 	for _, attr := range r.Attributes() {
-		attrs = append(attrs, string(attr))
+		searchAttrs = append(searchAttrs, string(attr))
 	}
 
-	log.Infof("client [%d]: search base=\"%s\" scope=%d filter=\"%s\"", m.Client.Numero(), r.BaseObject(), r.Scope(), r.FilterString())
-	log.Infof("client [%d]: search attr=%s", m.Client.Numero(), strings.Join(attrs, " "))
+	log.Infof("client [%d]: search attr=%s", m.Client.Numero(), strings.Join(searchAttrs, " "))
 
 	// check requested controls
 	var controls []string
@@ -278,7 +280,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 				sizeLimitReached = true
 				goto end
 			} else if ok {
-				e := createSearchEntry(entries.Domain, r.Attributes(), cfg.BaseDN)
+				e := createSearchEntry(entries.Domain, searchAttrs, cfg.BaseDN)
 				w.Write(e)
 
 				searchControl.sent++
@@ -376,7 +378,7 @@ ous:
 			goto end
 		}
 
-		e := createSearchEntry(entries.OUs[i], r.Attributes(), entryName)
+		e := createSearchEntry(entries.OUs[i], searchAttrs, entryName)
 		w.Write(e)
 
 		searchControl.sent++
@@ -461,7 +463,7 @@ users:
 			goto end
 		}
 
-		e := createSearchEntry(entries.Users[i], r.Attributes(), entryName)
+		e := createSearchEntry(entries.Users[i], searchAttrs, entryName)
 		w.Write(e)
 
 		searchControl.sent++
@@ -546,7 +548,7 @@ groups:
 			goto end
 		}
 
-		e := createSearchEntry(entries.Groups[i], r.Attributes(), entryName)
+		e := createSearchEntry(entries.Groups[i], searchAttrs, entryName)
 		w.Write(e)
 
 		searchControl.sent++
@@ -616,7 +618,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 
 	r := m.GetCompareRequest()
 	attrName := string(r.Ava().AttributeDesc())
-	log.Infof("client [%d]: compare dn=\"%s\" attr=\"%s\"", m.Client.Numero(), r.Entry(), attrName)
+	log.Infof("client [%d]: compare dn='%s' attr='%s'", m.Client.Numero(), r.Entry(), attrName)
 
 	// check compare entry dn
 	compareEntry := normalizeEntry(string(r.Entry()))

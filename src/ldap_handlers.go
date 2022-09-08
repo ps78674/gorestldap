@@ -34,7 +34,7 @@ type additionalData struct {
 }
 
 // handle bind
-func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries) {
+func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, cfg *Config) {
 	entries.RLock()
 	defer entries.RUnlock()
 
@@ -128,7 +128,7 @@ userNotFound:
 }
 
 // search DSE
-func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message) {
+func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message, cfg *Config) {
 	r := m.GetSearchRequest()
 
 	log.Infof("client [%d]: search base='%s' scope=%d filter='%s'", m.Client.Numero(), r.BaseObject(), r.Scope(), r.FilterString())
@@ -157,7 +157,7 @@ func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 }
 
 // handle search
-func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries) {
+func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, cfg *Config) {
 	entries.RLock()
 	defer entries.RUnlock()
 
@@ -612,7 +612,7 @@ end:
 }
 
 // handle compare
-func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries) {
+func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, cfg *Config) {
 	entries.RLock()
 	defer entries.RUnlock()
 
@@ -755,7 +755,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 }
 
 // handle modify
-func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, b Backend, ticker *time.Ticker) {
+func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, cfg *Config, b Backend, ticker *time.Ticker) {
 	entries.RLock()
 	defer entries.RUnlock()
 

@@ -8,7 +8,7 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-func handleCallback(ctx *fasthttp.RequestCtx, ticker *time.Ticker) {
+func handleCallback(ctx *fasthttp.RequestCtx, cfg *Config, ticker *time.Ticker) {
 	switch path := string(ctx.Path()); path {
 	case "/callback":
 		log.Debug("new callback request")

@@ -3,10 +3,10 @@
 + fix callback - HEAD on listen/callback with header Authorization: Token 12345
 * fix modify - backends should support updating data | return modify err
 + fix tags lookups - ldap_skip, ldap_case_sensitive_value -> `ldap:"skip,case_sensitive"`
-make entrydn comparable
+- make entrydn comparable
 + fix compare (return err, uint etc)
 + refactor handleSearchDSE(), handleSearch(), applySearchFilter()
 + fix FieldByNameFunc() for field, fieldValue in doCompare(), doModify()
 add debug logs
-fix global vars
++ fix global vars
 + refactor createSearchResultEntry() - remove getAttrValues(), getAllAttrsAndValues()

@@ -101,12 +101,12 @@ func (c *Config) init() error {
 		}
 	}
 
-	if len(cfg.UsersOUName) == 0 {
-		cfg.UsersOUName = defaultUsersOUName
+	if len(c.UsersOUName) == 0 {
+		c.UsersOUName = defaultUsersOUName
 	}
 
-	if len(cfg.GroupsOUName) == 0 {
-		cfg.GroupsOUName = defaultGroupsOUName
+	if len(c.GroupsOUName) == 0 {
+		c.GroupsOUName = defaultGroupsOUName
 	}
 
 	// normalize baseDN
@@ -118,11 +118,9 @@ func (c *Config) init() error {
 	return nil
 }
 
-var cfg Config
-
 func main() {
 	// init config
-	// var cfg Config
+	var cfg Config
 	if err := cfg.init(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -244,17 +242,19 @@ func main() {
 	// create route bindings
 	routes := ldapserver.NewRouteMux()
 	routes.Bind(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-		handleBind(w, m, &entries)
+		handleBind(w, m, &entries, &cfg)
 	})
-	routes.Search(handleSearchDSE).BaseDn("").Scope(ldapserver.SearchRequestScopeBaseObject).Filter("(objectclass=*)")
 	routes.Search(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-		handleSearch(w, m, &entries)
+		handleSearchDSE(w, m, &cfg)
+	}).BaseDn("").Scope(ldapserver.SearchRequestScopeBaseObject).Filter("(objectclass=*)")
+	routes.Search(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
+		handleSearch(w, m, &entries, &cfg)
 	})
 	routes.Compare(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-		handleCompare(w, m, &entries)
+		handleCompare(w, m, &entries, &cfg)
 	})
 	routes.Modify(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-		handleModify(w, m, &entries, backend, ticker)
+		handleModify(w, m, &entries, &cfg, backend, ticker)
 	})
 
 	// attach routes to server
@@ -280,7 +280,7 @@ func main() {
 		log.Infof("starting http server on '%s'", cfg.CallbackListenAddr)
 
 		httpServer.Handler = func(ctx *fasthttp.RequestCtx) {
-			handleCallback(ctx, ticker)
+			handleCallback(ctx, &cfg, ticker)
 		}
 
 		go func() {

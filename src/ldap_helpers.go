@@ -102,9 +102,7 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 
 		if strings.ToLower(attrName) == "entrydn" {
 			entry := normalizeEntry(string(filter.AssertionValue()))
-			if strings.HasSuffix(entry, cfg.BaseDN) {
-				attrName, attrValue, _ = getEntryAttrValueSuffix(entry)
-			}
+			attrName, attrValue, _ = getEntryAttrValueSuffix(entry)
 		}
 
 		field, found := reflect.TypeOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })

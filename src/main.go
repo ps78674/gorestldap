@@ -261,16 +261,17 @@ func main() {
 	ldapServer.Handle(routes)
 
 	// listen and serve
-	chErr := make(chan error)
-	if !cfg.UseTLS {
+	chLDAPServeErr := make(chan error)
+	switch cfg.UseTLS {
+	case false:
 		log.Infof("starting ldap server on '%s'", cfg.ListenAddr)
-		go ldapServer.ListenAndServe(cfg.ListenAddr, chErr)
-	} else {
+		go ldapServer.ListenAndServe(cfg.ListenAddr, chLDAPServeErr)
+	case true:
 		log.Infof("starting ldaps server on '%s'", cfg.ListenAddr)
-		go ldapServer.ListenAndServeTLS(cfg.ListenAddr, cfg.ServerCert, cfg.ServerKey, chErr)
+		go ldapServer.ListenAndServeTLS(cfg.ListenAddr, cfg.ServerCert, cfg.ServerKey, chLDAPServeErr)
 	}
 
-	if err := <-chErr; err != nil {
+	if err := <-chLDAPServeErr; err != nil {
 		log.Fatalf("error starting server: %s", err)
 	}
 
@@ -316,10 +317,10 @@ func main() {
 
 	// reset ticker / update data on SIGUSR1
 	go func() {
-		sigusr1 := make(chan os.Signal, 1)
+		chReload := make(chan os.Signal, 1)
 		for {
-			signal.Notify(sigusr1, syscall.SIGUSR1)
-			<-sigusr1
+			signal.Notify(chReload, syscall.SIGUSR1)
+			<-chReload
 			ticker.Reset(time.Millisecond)
 			<-ticker.C
 			ticker.Reset(cfg.UpdateInterval)
@@ -327,13 +328,13 @@ func main() {
 	}()
 
 	// graceful stop on CTRL+C / SIGINT / SIGTERM
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
-	<-ch
+	chStop := make(chan os.Signal, 1)
+	signal.Notify(chStop, syscall.SIGINT, syscall.SIGTERM)
+	<-chStop
 
 	httpServer.Shutdown()
 	ldapServer.Stop()
 
-	signal.Stop(ch)
-	close(ch)
+	signal.Stop(chStop)
+	close(chStop)
 }

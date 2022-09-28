@@ -1,7 +1,7 @@
 log_timestamp: false
 log_caller: false
 
-backend_dir: ./
+backend_dir: ./build/backends
 
 backends:
   rest:

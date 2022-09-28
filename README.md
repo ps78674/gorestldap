@@ -20,8 +20,7 @@ Options:
 
 ```
 Server loads JSON data from rest or file backends and holds it in memory. Data will be reloaded after timeout specified in `--interval` arg.  
-Rest plugin uses REST API for input data (for example, DRF).  
-File plugin - simple file with JSON.  
+Rest plugin uses REST API for input data (for example, DRF), file plugin - simple file with JSON.  
 
 ### **Compile**
 Just type `make`

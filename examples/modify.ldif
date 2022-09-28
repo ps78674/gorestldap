@@ -1,0 +1,9 @@
+dn: cn=admin,ou=users,dc=example,dc=com
+changetype: modify
+replace: mail
+mail: replaced@example.com
+
+dn: cn=admin,ou=users,dc=example,dc=com
+changetype: modify
+replace: uidNumber
+uidNumber: 1234

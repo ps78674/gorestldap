@@ -1,0 +1,27 @@
+log_timestamp: false
+log_caller: false
+
+backend_dir: ./build/backends
+
+backends:
+  rest:
+    url: http://localhost:8000/api
+    users_path: /ldap/user
+    groups_path: /ldap/group
+    auth_token: qwertyuiop1234567890
+    http_request_timeout: 30s
+  file:
+    users_path: examples/file/users.json
+    groups_path: examples/file/groups.json
+
+respect_control_criticality: true
+
+users_ou_name: users
+groups_ou_name: groups
+
+use_tls: false
+server_cert: server.crt
+server_key: server.key
+
+callback_listen_addr: localhost:8080
+callback_auth_token: qwertyuiop1234567890

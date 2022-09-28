@@ -1,90 +1,157 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	ldap "github.com/ps78674/goldap/message"
 )
 
-type passwordData struct {
-	CN           string `json:"cn"`
-	UserPassword string `json:"userPassword"`
+type LDAPError struct {
+	ResultCode int
+	error
 }
 
-type attrValues struct {
-	Attr   string
-	Values interface{}
+var (
+	errLDAPNoAttr error = LDAPError{
+		ldap.ResultCodeUndefinedAttributeType,
+		errors.New("target entry does not have requested attribute"),
+	}
+
+	errLDAPMultiValue error = LDAPError{
+		ldap.ResultCodeInvalidAttributeSyntax,
+		errors.New("attempt to set multiple values on single value attribute"),
+	}
+)
+
+// newEntryUUID creates uuid5 from NameSpaceOID and entry name
+func newEntryUUID(name string) string {
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(name)).String()
 }
 
-// apply search filter for each object
+// normalizeEntry returns entry in lowercase without spaces after comma
+// e.g. DC=test, dc=EXAMPLE,  dc=com -> dc=test,dc=example,dc=com
+func normalizeEntry(s string) string {
+	s = strings.ToLower(s)
+	re := regexp.MustCompile(`(,[\s]+)`)
+	return re.ReplaceAllString(s, ",")
+}
+
+// isCorrectDn checks dn syntax
+func isCorrectDn(s string) bool {
+	var allowedAttrs = []string{"cn", "uid", "ou", "dc"}
+
+	for _, sub := range strings.Split(s, ",") {
+		var found bool
+
+		attrName, _, found := strings.Cut(sub, "=")
+		if !found {
+			return false
+		}
+		for _, attr := range allowedAttrs {
+			if attrName == attr {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	return true
+}
+
+// getEntryAttrValueSuffix returns entry attribute, its value and suffix
+// e.g. for entry cn=admin,ou=users,dc=example,dc=com it would return ['cn', 'admin', 'ou=users,dc=example,dc=com']
+func getEntryAttrValueSuffix(entry string) (attr, value, suffix string) {
+	var attrValue string
+	attrValue, suffix, _ = strings.Cut(entry, ",")
+	attr, value, _ = strings.Cut(attrValue, "=")
+	return
+}
+
+// tagValueContains returns true if StructTag's 'tag' key 'tagName' contains value 'tagValue'
+func tagValueContains(tag reflect.StructTag, tagName, tagValue string) bool {
+	val, ok := tag.Lookup(tagName)
+	if !ok {
+		return false
+	}
+	var found bool
+	for _, s := range strings.Split(val, ",") {
+		if s != tagValue {
+			continue
+		}
+		found = true
+		break
+	}
+	return found
+}
+
+// applySearchFilter returns true if object 'o' fits filter 'f'
 func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
-	switch f.(type) {
+	switch filter := f.(type) {
 	case ldap.FilterEqualityMatch:
-		filter := f.(ldap.FilterEqualityMatch)
-		attrName := strings.ToLower(string(filter.AttributeDesc())) // CN|cn -> compare in lowercase
+		attrName := string(filter.AttributeDesc())
 		attrValue := string(filter.AssertionValue())
 
-		rValue := reflect.ValueOf(o)
-		for i := 0; i < rValue.Type().NumField(); i++ {
-			if attrName == "entrydn" && strings.HasSuffix(attrValue, cmdOpts.BaseDN) {
-				newValues := strings.SplitN(strings.TrimSuffix(attrValue, ","+cmdOpts.BaseDN), "=", 2)
-				attrName = newValues[0]
-				attrValue = newValues[1]
+		if strings.ToLower(attrName) == "entrydn" {
+			entry := normalizeEntry(string(filter.AssertionValue()))
+			attrName, attrValue, _ = getEntryAttrValueSuffix(entry)
+		}
+
+		field, found := reflect.TypeOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
+		if !found {
+			return false, nil
+		}
+
+		fieldValue := reflect.ValueOf(o).FieldByName(field.Name)
+		if !fieldValue.IsValid() {
+			return false, nil
+		}
+
+		switch val := fieldValue.Interface().(type) {
+		case uint:
+			if fmt.Sprint(val) == attrValue {
+				return true, nil
 			}
-			if strings.ToLower(rValue.Type().Field(i).Name) != attrName {
-				continue
+		case string:
+			if !tagValueContains(field.Tag, "ldap", "case_sensitive_value") {
+				val = strings.ToLower(val)
+				attrValue = strings.ToLower(attrValue)
 			}
-			switch rValue.Field(i).Interface().(type) {
-			case string:
-				restValue := rValue.Field(i).String()
-				// compare values case insensitive for all attrs except userPassword
-				if attrName != "userpassword" {
-					restValue = strings.ToLower(restValue)
+			if val == attrValue {
+				return true, nil
+			}
+		case []string:
+			for _, v := range val {
+				if !tagValueContains(field.Tag, "ldap", "case_sensitive_value") {
+					v = strings.ToLower(v)
 					attrValue = strings.ToLower(attrValue)
 				}
-				if restValue == attrValue {
+				if v == attrValue {
 					return true, nil
-				}
-			case []string:
-				for j := 0; j < rValue.Field(i).Len(); j++ {
-					restValue := rValue.Field(i).Index(j).String()
-					if _, ok := rValue.Type().Field(i).Tag.Lookup("lower"); ok {
-						attrValue = strings.ToLower(attrValue)
-						restValue = strings.ToLower(restValue)
-					}
-					if restValue == attrValue {
-						return true, nil
-					}
 				}
 			}
 		}
 	case ldap.FilterAnd:
-		items := reflect.ValueOf(f)
-		for i := 0; i < items.Len(); i++ {
-			filter := items.Index(i).Interface().(ldap.Filter)
-
-			ok, err := applySearchFilter(o, filter)
-			if err != nil {
-				return false, err
-			}
-			if !ok {
-				return false, nil
+		for _, _filter := range filter {
+			ok, err := applySearchFilter(o, _filter)
+			if !ok || err != nil {
+				return ok, err
 			}
 		}
 		return true, nil
 	case ldap.FilterOr:
-		anyOk := false
+		var anyOk bool
 
-		items := reflect.ValueOf(f)
-		for i := 0; i < items.Len(); i++ {
-			filter := items.Index(i).Interface().(ldap.Filter)
-
-			ok, err := applySearchFilter(o, filter)
+		for _, _filter := range filter {
+			ok, err := applySearchFilter(o, _filter)
 			if err != nil {
 				return false, err
 			}
@@ -97,46 +164,59 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 			return true, nil
 		}
 	case ldap.FilterPresent:
-		rValue := reflect.ValueOf(o)
-		for i := 0; i < rValue.Type().NumField(); i++ {
-			if strings.ToLower(reflect.ValueOf(f).String()) == "objectclass" || strings.ToLower(reflect.ValueOf(f).String()) == "entrydn" ||
-				(strings.EqualFold(rValue.Type().Field(i).Name, reflect.ValueOf(f).String()) && rValue.Field(i).Len() > 0) {
-				return true, nil
-			}
+		attrName := fmt.Sprintf("%v", filter)
+		if strings.ToLower(attrName) == "entrydn" {
+			return true, nil
+		}
+
+		field, found := reflect.TypeOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
+		if !found {
+			return false, nil
+		}
+
+		tagValue := field.Tag.Get("json")
+		tagValue, _, _ = strings.Cut(tagValue, ",")
+		if strings.EqualFold(attrName, tagValue) {
+			return true, nil
 		}
 	case ldap.FilterSubstrings:
-		attrName := strings.ToLower(reflect.ValueOf(f).Field(0).String()) // CN|cn -> compare in lowercase
-		attrValues := reflect.ValueOf(f).Field(1)
+		attrName := string(filter.Type_())
+		attrValues := filter.Substrings()
 
-		rValue := reflect.ValueOf(o)
-		for i := 0; i < rValue.Type().NumField(); i++ {
-			if strings.ToLower(rValue.Type().Field(i).Name) != attrName {
-				continue
-			}
+		field, found := reflect.TypeOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
+		if !found {
+			return false, nil
+		}
 
-			for j := 0; j < attrValues.Len(); j++ {
-				attrValue := attrValues.Index(j).Elem().String()
-				switch rValue.Field(i).Interface().(type) {
-				case string:
-					restValue := rValue.Field(i).String()
-					// compare values case insensitive for all attrs except userPassword
-					if attrName != "userpassword" {
-						restValue = strings.ToLower(restValue)
+		fieldValue := reflect.ValueOf(o).FieldByName(field.Name)
+		if !fieldValue.IsValid() {
+			return false, nil
+		}
+
+		for _, _attrValue := range attrValues {
+			substringInitial, _ := _attrValue.(ldap.SubstringInitial)
+			attrValue := string(substringInitial)
+			switch val := fieldValue.Interface().(type) {
+			case uint:
+				if strings.HasPrefix(fmt.Sprint(val), attrValue) {
+					return true, nil
+				}
+			case string:
+				if !tagValueContains(field.Tag, "ldap", "case_sensitive_value") {
+					val = strings.ToLower(val)
+					attrValue = strings.ToLower(attrValue)
+				}
+				if strings.HasPrefix(val, attrValue) {
+					return true, nil
+				}
+			case []string:
+				for _, v := range val {
+					if !tagValueContains(field.Tag, "ldap", "case_sensitive_value") {
+						v = strings.ToLower(v)
 						attrValue = strings.ToLower(attrValue)
 					}
-					if strings.HasPrefix(restValue, attrValue) {
+					if strings.HasPrefix(v, attrValue) {
 						return true, nil
-					}
-				case []string:
-					for k := 0; k < rValue.Field(i).Len(); k++ {
-						restValue := rValue.Field(i).Index(k).String()
-						if _, ok := rValue.Type().Field(i).Tag.Lookup("lower"); ok {
-							attrValue = strings.ToLower(attrValue)
-							restValue = strings.ToLower(restValue)
-						}
-						if strings.HasPrefix(restValue, attrValue) {
-							return true, nil
-						}
 					}
 				}
 			}
@@ -148,153 +228,75 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	return false, nil
 }
 
-// actual compare
-func doCompare(o interface{}, attrName string, attrValue string) bool {
-	attrName = strings.ToLower(attrName)
-
-	rValue := reflect.ValueOf(o)
-	for i := 0; i < rValue.Type().NumField(); i++ {
-		if strings.ToLower(rValue.Type().Field(i).Name) != attrName {
-			continue
-		}
-		switch rValue.Field(i).Interface().(type) {
-		case string:
-			// compare values case insensitive for all attrs except userPassword
-			restValue := rValue.Field(i).String()
-			if attrName != "userpassword" {
-				restValue = strings.ToLower(restValue)
-				attrValue = strings.ToLower(attrValue)
-			}
-			if restValue == attrValue {
-				return true
-			}
-		case []string:
-			for j := 0; j < rValue.Field(i).Len(); j++ {
-				restValue := rValue.Field(i).Index(j).String()
-				if _, ok := rValue.Type().Field(i).Tag.Lookup("lower"); ok {
-					attrValue = strings.ToLower(attrValue)
-					restValue = strings.ToLower(restValue)
-				}
-				if restValue == attrValue {
-					return true
-				}
-			}
-		}
-	}
-
-	return false
-}
-
-// create slice of ldap attributes
+// newLDAPAttributeValues creates ldap attributes from an interface
 func newLDAPAttributeValues(in interface{}) (out []ldap.AttributeValue) {
 	switch in := in.(type) {
+	case uint:
+		out = append(out, ldap.AttributeValue(fmt.Sprint(in)))
+	case string:
+		out = append(out, ldap.AttributeValue(in))
 	case []string:
 		for _, v := range in {
 			out = append(out, ldap.AttributeValue(v))
 		}
-	case string:
-		out = append(out, ldap.AttributeValue(in))
 	}
-
 	return
 }
 
-// trim spaces for entries (dc=test, dc.example,  dc=org -> dc=test,dc.example,dc=org)
-func trimSpacesAfterComma(s string) string {
-	re := regexp.MustCompile(`(,[\s]+)`)
-	return re.ReplaceAllString(s, ",")
-}
-
-// modify password via api
-func doModify(cn string, pw string) error {
-	b, err := json.Marshal(passwordData{CN: cn, UserPassword: pw})
-	if err != nil {
-		return err
-	}
-
-	reqURL := fmt.Sprintf("%s%s", cmdOpts.URL, urlLDAPUsers)
-	nb, err := doRequest(reqURL, b)
-	if err != nil {
-		return err
-	}
-
-	if !bytes.Equal(b, nb) {
-		return fmt.Errorf("%s", nb)
-	}
-
-	return nil
-}
-
-// get all attributes
-func getAllAttrsAndValues(o interface{}, operationalOnly bool) (ret []attrValues) {
-	rValue := reflect.ValueOf(o)
-	for i := 0; i < rValue.NumField(); i++ {
-		if _, ok := rValue.Type().Field(i).Tag.Lookup("skip"); ok {
-			continue
-		}
-		if _, ok := rValue.Type().Field(i).Tag.Lookup("hidden"); (!ok && operationalOnly) || (ok && !operationalOnly) {
-			continue
-		}
-
-		attr := rValue.Type().Field(i).Tag.Get("json")
-		if attr == "" {
-			attr = rValue.Type().Field(i).Name
-		}
-
-		values := rValue.Field(i).Interface()
-
-		ret = append(ret, attrValues{Attr: attr, Values: values})
-	}
-
-	return ret
-}
-
-// get struct field values by field name
-func getAttrValues(o interface{}, fieldName string) (len int, values interface{}) {
-	field, _ := reflect.TypeOf(o).FieldByNameFunc(func(n string) bool { return strings.ToLower(n) == fieldName })
-	if field.Tag.Get("skip") == "yes" {
-		return
-	}
-
-	rValue := reflect.ValueOf(o).FieldByName(field.Name)
-	if rValue.IsValid() {
-		len = rValue.Len()
-		values = rValue.Interface()
-	}
-
-	return
-}
-
-func createSearchResultEntry(o interface{}, attrs ldap.AttributeSelection, entryName string) (e ldap.SearchResultEntry) {
+// createSearchEntry creates ldap.SearchResultEntry from 'o' with attributes 'attrs' and name 'entryName'
+func createSearchEntry(o interface{}, attrs []string, entryName string) (e ldap.SearchResultEntry) {
 	// set entry name
 	e.SetObjectName(entryName)
 
-	// // if no specific attributes requested -> add all attributes
+	// if no attrs set -> use * (all)
 	if len(attrs) == 0 {
-		for _, v := range getAllAttrsAndValues(o, false) {
-			e.AddAttribute(ldap.AttributeDescription(v.Attr), newLDAPAttributeValues(v.Values)...)
-		}
+		attrs = append(attrs, "*")
 	}
 
-	// if some attributes requested -> add only those attributes
-	if len(attrs) > 0 {
-		for _, a := range attrs {
-			switch attr := strings.ToLower(string(a)); attr {
-			case "entrydn":
-				e.AddAttribute("entryDN", ldap.AttributeValue(entryName))
-			case "+":
-				for _, v := range getAllAttrsAndValues(o, true) {
-					e.AddAttribute(ldap.AttributeDescription(v.Attr), newLDAPAttributeValues(v.Values)...)
+	for _, a := range attrs {
+		switch attr := strings.ToLower(a); attr {
+		case "entrydn":
+			e.AddAttribute("entryDN", ldap.AttributeValue(entryName))
+		case "+": // operational only
+			e.AddAttribute("entryDN", ldap.AttributeValue(entryName))
+			rValue := reflect.ValueOf(o)
+			for i := 0; i < rValue.NumField(); i++ {
+				field := rValue.Type().Field(i)
+				if tagValueContains(field.Tag, "ldap", "skip") {
+					continue
 				}
-			case "*":
-				for _, v := range getAllAttrsAndValues(o, false) {
-					e.AddAttribute(ldap.AttributeDescription(v.Attr), newLDAPAttributeValues(v.Values)...)
+				if !tagValueContains(field.Tag, "ldap", "operational") {
+					continue
 				}
-			default:
-				len, values := getAttrValues(o, attr)
-				if len > 0 {
-					e.AddAttribute(ldap.AttributeDescription(a), newLDAPAttributeValues(values)...)
+				tagValue := field.Tag.Get("json")
+				attrName, _, _ := strings.Cut(tagValue, ",")
+				e.AddAttribute(ldap.AttributeDescription(attrName), newLDAPAttributeValues(rValue.Field(i).Interface())...)
+			}
+		case "*": // all except operational
+			rValue := reflect.ValueOf(o)
+			for i := 0; i < rValue.NumField(); i++ {
+				field := rValue.Type().Field(i)
+				if tagValueContains(field.Tag, "ldap", "skip") {
+					continue
 				}
+				if tagValueContains(field.Tag, "ldap", "operational") {
+					continue
+				}
+				tagValue := field.Tag.Get("json")
+				attrName, _, _ := strings.Cut(tagValue, ",")
+				e.AddAttribute(ldap.AttributeDescription(attrName), newLDAPAttributeValues(rValue.Field(i).Interface())...)
+			}
+		default:
+			field, found := reflect.TypeOf(o).FieldByNameFunc(func(n string) bool { return strings.EqualFold(n, attr) })
+			if !found {
+				continue
+			}
+			if tagValueContains(field.Tag, "ldap", "skip") {
+				continue
+			}
+			fieldValue := reflect.ValueOf(o).FieldByName(field.Name)
+			if fieldValue.IsValid() {
+				e.AddAttribute(ldap.AttributeDescription(a), newLDAPAttributeValues(fieldValue.Interface())...)
 			}
 		}
 	}
@@ -302,17 +304,96 @@ func createSearchResultEntry(o interface{}, attrs ldap.AttributeSelection, entry
 	return
 }
 
-func getEntryAttrAndName(e string) (attr string, name string) {
-	trimmed := strings.TrimSuffix(e, ","+cmdOpts.BaseDN)
-
-	// entry == baseDN
-	if trimmed == e {
-		return
+// doCompare checks if object 'o' have attr 'attrName' with value 'attrValue'
+func doCompare(o interface{}, attrName string, attrValue string) (bool, error) {
+	field, found := reflect.TypeOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
+	if !found {
+		return false, errLDAPNoAttr
+	}
+	if tagValueContains(field.Tag, "ldap", "skip") {
+		return false, errLDAPNoAttr
 	}
 
-	splitted := strings.SplitN(trimmed, "=", 2)
-	attr = splitted[0]
-	name = splitted[1]
+	fieldValue := reflect.ValueOf(o).FieldByName(field.Name)
+	if !fieldValue.IsValid() {
+		return false, errLDAPNoAttr
+	}
 
-	return
+	switch val := fieldValue.Interface().(type) {
+	case uint:
+		if fmt.Sprint(val) == attrValue {
+			return true, nil
+		}
+	case string:
+		if !tagValueContains(field.Tag, "ldap", "case_sensitive_value") {
+			val = strings.ToLower(val)
+			attrValue = strings.ToLower(attrValue)
+		}
+		if val == attrValue {
+			return true, nil
+		}
+	case []string:
+		for _, v := range val {
+			if !tagValueContains(field.Tag, "ldap", "case_sensitive_value") {
+				v = strings.ToLower(v)
+				attrValue = strings.ToLower(attrValue)
+			}
+			if v == attrValue {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
+// doModify update object's 'o' attr 'attrName' with value 'attrValue'
+func doModify(o interface{}, attrName string, values []ldap.AttributeValue) error {
+	root := reflect.ValueOf(o).Elem()
+	obj := root.Elem()
+	objType := obj.Type()
+
+	field, found := objType.FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
+	if !found {
+		return errLDAPNoAttr
+	}
+	if tagValueContains(field.Tag, "ldap", "skip") {
+		return errLDAPNoAttr
+	}
+
+	objCopy := reflect.New(objType).Elem()
+	objCopy.Set(obj)
+
+	fieldValue := objCopy.FieldByName(field.Name)
+	if !fieldValue.IsValid() {
+		return errLDAPNoAttr
+	}
+
+	switch fieldValue.Interface().(type) {
+	case uint:
+		if len(values) > 1 {
+			return errLDAPMultiValue
+		}
+		_uint, err := strconv.ParseUint(string(values[0]), 10, 32)
+		if err != nil {
+			return LDAPError{
+				ldap.ResultCodeUndefinedAttributeType,
+				fmt.Errorf("wrong attribute value: %s", err),
+			}
+		}
+		fieldValue.SetUint(_uint)
+	case string:
+		if len(values) > 1 {
+			return errLDAPMultiValue
+		}
+		fieldValue.SetString(string(values[0]))
+	case []string:
+		for _, v := range values {
+			fieldValue.SetString(string(v))
+		}
+	}
+
+	root.Set(objCopy)
+
+	return nil
 }

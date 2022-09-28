@@ -239,6 +239,8 @@ func main() {
 	ticker := time.NewTicker(cfg.UpdateInterval)
 	defer ticker.Stop()
 
+	log.Debug("registering handlers")
+
 	// create route bindings
 	routes := ldapserver.NewRouteMux()
 	routes.Bind(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {

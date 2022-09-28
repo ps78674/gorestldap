@@ -11,8 +11,8 @@ backends:
     auth_token: qwertyuiop1234567890
     http_request_timeout: 30s
   file:
-    users_path: users.json
-    groups_path: groups.json
+    users_path: examples/file/users.json
+    groups_path: examples/file/groups.json
 
 respect_control_criticality: true
 

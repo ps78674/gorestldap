@@ -1,4 +1,4 @@
-SERVER_DIR=./example_server
+SERVER_DIR=./examples/rest
 VENV_DIR=$(SERVER_DIR)/.venv
 
 VER=$(shell cat VERSION)

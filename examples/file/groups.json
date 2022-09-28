@@ -1,0 +1,44 @@
+[
+    {
+        "entryUUID": "79303aa9-f796-5fe5-8fbb-6ed826b2d8bb",
+        "hasSubordinates": "FALSE",
+        "objectClass": [
+            "top",
+            "posixGroup"
+        ],
+        "cn": "primary_group",
+        "gidNumber": 1999,
+        "description": null,
+        "memberUid": [
+            "admin"
+        ]
+    },
+    {
+        "entryUUID": "6935520c-e7db-5a77-9d7a-a07072479832",
+        "hasSubordinates": "FALSE",
+        "objectClass": [
+            "top",
+            "posixGroup"
+        ],
+        "cn": "group_a",
+        "gidNumber": 2000,
+        "description": null,
+        "memberUid": [
+            "admin"
+        ]
+    },
+    {
+        "entryUUID": "38c01456-e076-5d6d-9573-948cb2d86453",
+        "hasSubordinates": "FALSE",
+        "objectClass": [
+            "top",
+            "posixGroup"
+        ],
+        "cn": "group_b",
+        "gidNumber": 2001,
+        "description": null,
+        "memberUid": [
+            "admin"
+        ]
+    }
+]

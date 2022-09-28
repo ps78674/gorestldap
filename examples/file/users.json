@@ -1,0 +1,31 @@
+[
+    {
+        "ldapAdmin": true,
+        "entryUUID": "ae6c10d0-0b13-554c-b976-a05d8a18f0cc",
+        "hasSubordinates": "FALSE",
+        "objectClass": [
+            "top",
+            "posixAccount",
+            "shadowAccount",
+            "organizationalPerson",
+            "inetOrgPerson",
+            "person"
+        ],
+        "cn": "admin",
+        "uidNumber": 1000,
+        "userPassword": "{SSHA}rapW2TNEFWp6HxD/nfwsjcBCD8Pi3Bvj",
+        "gidNumber": 1999,
+        "uid": "admin",
+        "displayName": "Ivan Petrov",
+        "givenName": "Ivan",
+        "sn": "Petrov",
+        "mail": "i.petrov@example.com",
+        "homeDirectory": "/home/admin",
+        "loginShell": "/bin/bash",
+        "memberOf": [
+            "primary_group",
+            "group_a",
+            "group_b"
+        ]
+    }
+]

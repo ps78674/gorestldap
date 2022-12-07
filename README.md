@@ -1,4 +1,10 @@
 ## **Simple LDAP server with REST API & file backends.**
+Server loads JSON data from backend and holds it in memory for future processing in LDAP requests. Data will be reloaded after timeout specified in `--interval` arg.  
+There are two backends: rest (loads json from REST API) and file (loads json from file).  
+
+Server support bind, search, compare and modify (only replace) operations. It can handle paged results search control (1.2.840.113556.1.4.319).  
+Search with unsupported critical controls requested can be handled with `respect_control_criticality` set to false.  
+
 ### **Usage**
 ```
 gorestldap: LDAP server with REST API & file backends
@@ -19,8 +25,6 @@ Options:
   --version                  show version
 
 ```
-Server loads JSON data from rest or file backends and holds it in memory. Data will be reloaded after timeout specified in `--interval` arg.  
-Rest plugin uses REST API for input data (for example, DRF), file plugin - simple file with JSON.  
 
 ### **Compile**
 Just type `make`

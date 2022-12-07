@@ -26,11 +26,14 @@ Rest plugin uses REST API for input data (for example, DRF), file plugin - simpl
 Just type `make`
 
 ### **Run**
-There are some example data in `examples` folder.  
+`./build/gorestldap -L localhost:10389 -d -b <PLUGIN_NAME>`  
+
+### **Examples**
 To start django server type `make server` and copy auth token from django migration output to config.yaml. Then start ldap server:  
 `./build/gorestldap -L localhost:10389 -d -b rest`  
 To run with file plugin, set backend to file (`-b file`).  
 
-Example credetials `admin:admin`.  
+Admin credetials is `admin:admin`.  
 
+### **Callback**
 Callback listener may be used for data reload (HEAD with auth token `curl -v -I localhost:8080/callback -H "Authorization: Token qwertyuiop1234567890"`).  

@@ -33,11 +33,14 @@ Just type `make`
 `./build/gorestldap -L localhost:10389 -d -b <PLUGIN_NAME>`  
 
 ### **Examples**
+Admin credentials is `admin:admin`.  
 To start django server type `make server` and copy auth token from django migration output to config.yaml. Then start ldap server:  
 `./build/gorestldap -L localhost:10389 -d -b rest`  
-To run with file plugin, set backend to file (`-b file`).  
+User can be managed through django admin interface at `http://localhost:8000/admin`.  
 
-Admin credetials is `admin:admin`.  
+<img src="https://user-images.githubusercontent.com/31385755/209757267-f78e61d2-b46e-487f-a81c-5afe7bc26950.png" width="50%" height="50%">  
+
+To run with file plugin, set backend to file (`-b file`).  
 
 ### **Callback**
 Callback listener may be used for data reload (HEAD with auth token `curl -v -I localhost:8080/callback -H "Authorization: Token qwertyuiop1234567890"`).  

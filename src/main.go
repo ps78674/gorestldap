@@ -205,7 +205,7 @@ func main() {
 	}
 
 	var ous = []data.OU{
-		data.OU{
+		{
 			EntryUUID:       newEntryUUID(cfg.UsersOUName),
 			HasSubordinates: "TRUE",
 			ObjectClass: []string{
@@ -214,7 +214,7 @@ func main() {
 			},
 			OU: cfg.UsersOUName,
 		},
-		data.OU{
+		{
 			EntryUUID:       newEntryUUID(cfg.GroupsOUName),
 			HasSubordinates: "TRUE",
 			ObjectClass: []string{

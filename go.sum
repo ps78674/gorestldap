@@ -17,6 +17,8 @@ github.com/ps78674/goldap v0.0.0-20210727122805-99df957a6c80 h1:T1l1uRhOspRA182x
 github.com/ps78674/goldap v0.0.0-20210727122805-99df957a6c80/go.mod h1:1I9otN1F15q9oNDy1XDfWWCMl5qD2bUHG8OC+IwyDa0=
 github.com/ps78674/ldapserver v0.0.0-20230516112637-8a160accdcf2 h1:JGAL85jsP5dvokpr9ljNt6wCHigKH4hlp66R4PPLKOw=
 github.com/ps78674/ldapserver v0.0.0-20230516112637-8a160accdcf2/go.mod h1:ciDYZeapzBUdO6qQwtnkXirU8rv9RR5baOAWA7OLZcQ=
+github.com/ps78674/ldapserver v0.0.0-20230516140002-6365947ddda8 h1:gXT3J2WYc50LZNUOaier/rXdqWDSgxjK/ivbdTEWX8w=
+github.com/ps78674/ldapserver v0.0.0-20230516140002-6365947ddda8/go.mod h1:ciDYZeapzBUdO6qQwtnkXirU8rv9RR5baOAWA7OLZcQ=
 github.com/sirupsen/logrus v1.9.0 h1:trlNQbNUG3OdDrDil03MCb1H2o9nJ1x4/5LYw7byDE0=
 github.com/sirupsen/logrus v1.9.0/go.mod h1:naHLuLoDiP4jHNo9R0sCBMtWGeIprob74mVsIT4qYEQ=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=

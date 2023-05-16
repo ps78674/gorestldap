@@ -153,6 +153,9 @@ func main() {
 	// setup caller logging
 	log.SetReportCaller(cfg.LogCaller)
 
+	// setup ldapserver library logger
+	ldapserver.SetupLogger(log.StandardLogger())
+
 	// open plugin
 	backendPath := path.Join(cfg.BackendDir, cfg.BackendName+".so")
 

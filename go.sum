@@ -19,6 +19,10 @@ github.com/ps78674/ldapserver v0.0.0-20230516112637-8a160accdcf2 h1:JGAL85jsP5dv
 github.com/ps78674/ldapserver v0.0.0-20230516112637-8a160accdcf2/go.mod h1:ciDYZeapzBUdO6qQwtnkXirU8rv9RR5baOAWA7OLZcQ=
 github.com/ps78674/ldapserver v0.0.0-20230516140002-6365947ddda8 h1:gXT3J2WYc50LZNUOaier/rXdqWDSgxjK/ivbdTEWX8w=
 github.com/ps78674/ldapserver v0.0.0-20230516140002-6365947ddda8/go.mod h1:ciDYZeapzBUdO6qQwtnkXirU8rv9RR5baOAWA7OLZcQ=
+github.com/ps78674/ldapserver v0.0.0-20230531082306-a4c24987e35a h1:ZSIPmSXpKdeRPzUsUTa+8b+746T8DPy3N5U8tN7VTfU=
+github.com/ps78674/ldapserver v0.0.0-20230531082306-a4c24987e35a/go.mod h1:ciDYZeapzBUdO6qQwtnkXirU8rv9RR5baOAWA7OLZcQ=
+github.com/ps78674/ldapserver v0.0.0-20230531083129-e297774315af h1:vYjX7Qc/4wGRuzEtxH8vUGyamJ7WNfS3MhyJQK2/tOw=
+github.com/ps78674/ldapserver v0.0.0-20230531083129-e297774315af/go.mod h1:ciDYZeapzBUdO6qQwtnkXirU8rv9RR5baOAWA7OLZcQ=
 github.com/sirupsen/logrus v1.9.0 h1:trlNQbNUG3OdDrDil03MCb1H2o9nJ1x4/5LYw7byDE0=
 github.com/sirupsen/logrus v1.9.0/go.mod h1:naHLuLoDiP4jHNo9R0sCBMtWGeIprob74mVsIT4qYEQ=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=

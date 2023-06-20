@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"reflect"
 
 	"github.com/ps78674/gorestldap/src/internal/data"
@@ -51,8 +51,8 @@ func (b *backend) UpdateData(old, new interface{}) error {
 		}
 
 		var found bool
-		for i, user := range users {
-			if !reflect.DeepEqual(old, user) {
+		for i := range users {
+			if !reflect.DeepEqual(old, users[i]) {
 				continue
 			}
 			users[i] = entry
@@ -74,8 +74,8 @@ func (b *backend) UpdateData(old, new interface{}) error {
 		}
 
 		var found bool
-		for i, group := range groups {
-			if !reflect.DeepEqual(old, group) {
+		for i := range groups {
+			if !reflect.DeepEqual(old, groups[i]) {
 				continue
 			}
 			groups[i] = entry
@@ -96,7 +96,7 @@ func (b *backend) UpdateData(old, new interface{}) error {
 }
 
 func getData(path string, data interface{}) error {
-	contents, err := ioutil.ReadFile(path)
+	contents, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("error opening file: %s", err)
 	}
@@ -114,7 +114,7 @@ func updateData(path string, data interface{}) error {
 		return fmt.Errorf("error marshalling data: %s", err)
 	}
 
-	if err := ioutil.WriteFile(path, b, 0644); err != nil {
+	if err := os.WriteFile(path, b, 0644); err != nil {
 		return fmt.Errorf("error writing file: %s", err)
 	}
 

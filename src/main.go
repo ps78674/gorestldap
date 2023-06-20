@@ -153,6 +153,9 @@ func main() {
 	// setup caller logging
 	log.SetReportCaller(cfg.LogCaller)
 
+	// setup ldapserver library logger
+	ldapserver.SetupLogger(log.StandardLogger())
+
 	// open plugin
 	backendPath := path.Join(cfg.BackendDir, cfg.BackendName+".so")
 
@@ -205,7 +208,7 @@ func main() {
 	}
 
 	var ous = []data.OU{
-		data.OU{
+		{
 			EntryUUID:       newEntryUUID(cfg.UsersOUName),
 			HasSubordinates: "TRUE",
 			ObjectClass: []string{
@@ -214,7 +217,7 @@ func main() {
 			},
 			OU: cfg.UsersOUName,
 		},
-		data.OU{
+		{
 			EntryUUID:       newEntryUUID(cfg.GroupsOUName),
 			HasSubordinates: "TRUE",
 			ObjectClass: []string{
@@ -260,21 +263,26 @@ func main() {
 	})
 
 	// attach routes to server
-	ldapServer.Handle(routes)
+	if err := ldapServer.Handle(routes); err != nil {
+		log.Fatalf("error registering handler: %s\n", err)
+	}
 
 	// listen and serve
-	chLDAPServeErr := make(chan error)
 	switch cfg.UseTLS {
 	case false:
 		log.Infof("starting ldap server on '%s'", cfg.ListenAddr)
-		go ldapServer.ListenAndServe(cfg.ListenAddr, chLDAPServeErr)
+		go func() {
+			if err := ldapServer.ListenAndServe(cfg.ListenAddr); err != nil {
+				log.Fatalf("error starting server: %s\n", err)
+			}
+		}()
 	case true:
 		log.Infof("starting ldaps server on '%s'", cfg.ListenAddr)
-		go ldapServer.ListenAndServeTLS(cfg.ListenAddr, cfg.ServerCert, cfg.ServerKey, chLDAPServeErr)
-	}
-
-	if err := <-chLDAPServeErr; err != nil {
-		log.Fatalf("error starting server: %s", err)
+		go func() {
+			if err := ldapServer.ListenAndServeTLS(cfg.ListenAddr, cfg.ServerCert, cfg.ServerKey); err != nil {
+				log.Fatalf("error starting server: %s\n", err)
+			}
+		}()
 	}
 
 	// http callback server
@@ -335,7 +343,9 @@ func main() {
 	<-chStop
 
 	httpServer.Shutdown()
+	log.Info("gracefully closing client connections")
 	ldapServer.Stop()
+	log.Info("all client connections closed")
 
 	signal.Stop(chStop)
 	close(chStop)

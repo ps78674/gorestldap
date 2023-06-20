@@ -67,18 +67,18 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *dat
 		goto userNotFound
 	}
 
-	for _, user := range entries.Users {
+	for i := range entries.Users {
 		var cmpValue string
 		switch bindEntryAttr {
 		case "cn":
-			cmpValue = user.CN
+			cmpValue = entries.Users[i].CN
 		case "uid":
-			cmpValue = user.UID
+			cmpValue = entries.Users[i].UID
 		}
 		if cmpValue != bindEntryName {
 			continue
 		}
-		userData = user
+		userData = entries.Users[i]
 	}
 
 userNotFound:
@@ -134,8 +134,8 @@ func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message, cfg *Co
 	log.Infof("client [%d]: search base='%s' scope=%d filter='%s'", m.Client.Numero(), r.BaseObject(), r.Scope(), r.FilterString())
 
 	searchAttrs := []string{}
-	for _, attr := range r.Attributes() {
-		searchAttrs = append(searchAttrs, string(attr))
+	for i := range r.Attributes() {
+		searchAttrs = append(searchAttrs, string(r.Attributes()[i]))
 	}
 
 	log.Infof("client [%d]: search attr=%s", m.Client.Numero(), strings.Join(searchAttrs, " "))
@@ -166,8 +166,8 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	log.Infof("client [%d]: search base='%s' scope=%d filter='%s'", m.Client.Numero(), r.BaseObject(), r.Scope(), r.FilterString())
 
 	searchAttrs := []string{}
-	for _, attr := range r.Attributes() {
-		searchAttrs = append(searchAttrs, string(attr))
+	for i := range r.Attributes() {
+		searchAttrs = append(searchAttrs, string(r.Attributes()[i]))
 	}
 
 	log.Infof("client [%d]: search attr=%s", m.Client.Numero(), strings.Join(searchAttrs, " "))
@@ -177,22 +177,23 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	var simplePagedResultsControl ldap.SimplePagedResultsControl
 	var gotUCControl bool
 	if m.Controls() != nil {
-		for _, c := range *m.Controls() {
-			switch c.ControlType() {
+		_controls := *m.Controls()
+		for i := range controls {
+			switch _controls[i].ControlType() {
 			// 1.2.840.113556.1.4.319 (pagedSearch)
 			case ldap.PagedResultsControlOID:
-				controls = append(controls, c.ControlType().String())
-				c, err := ldap.ReadPagedResultsControl(c.ControlValue())
+				controls = append(controls, _controls[i].ControlType().String())
+				c, err := ldap.ReadPagedResultsControl(_controls[i].ControlValue())
 				if err != nil {
 					log.Errorf("client [%d]: error decoding pagedResultsControl: %s", m.Client.Numero(), err)
 				}
 				simplePagedResultsControl = c
 			default:
-				if c.Criticality().Bool() {
-					controls = append(controls, c.ControlType().String()+"(U,C)")
+				if _controls[i].Criticality().Bool() {
+					controls = append(controls, _controls[i].ControlType().String()+"(U,C)")
 					gotUCControl = true
 				} else {
-					controls = append(controls, c.ControlType().String()+"(U)")
+					controls = append(controls, _controls[i].ControlType().String()+"(U)")
 				}
 			}
 		}
@@ -662,7 +663,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 	case compareEntry == cfg.BaseDN:
 		entry = entries.Domain
 	case strings.HasPrefix(compareEntry, "ou=") && compareEntrySuffix == cfg.BaseDN:
-		for _, ou := range entries.OUs {
+		for i := range entries.OUs {
 			// handle stop signal
 			select {
 			case <-m.Done:
@@ -671,15 +672,15 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 			default:
 			}
 
-			if ou.OU != compareEntryName {
+			if entries.OUs[i].OU != compareEntryName {
 				continue
 			}
 
-			entry = ou
+			entry = entries.OUs[i]
 			break
 		}
 	case compareEntrySuffix == "ou="+cfg.UsersOUName+","+cfg.BaseDN:
-		for _, user := range entries.Users {
+		for i := range entries.Users {
 			// handle stop signal
 			select {
 			case <-m.Done:
@@ -691,19 +692,19 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 			var cmpValue string
 			switch compareEntryAttr {
 			case "cn":
-				cmpValue = user.CN
+				cmpValue = entries.Users[i].CN
 			case "uid":
-				cmpValue = user.UID
+				cmpValue = entries.Users[i].UID
 			}
 			if cmpValue != compareEntryName {
 				continue
 			}
 
-			entry = user
+			entry = entries.Users[i]
 			break
 		}
 	case strings.HasPrefix(compareEntry, "cn=") && compareEntrySuffix == "ou="+cfg.GroupsOUName+","+cfg.BaseDN:
-		for _, group := range entries.Groups {
+		for i := range entries.Groups {
 			// handle stop signal
 			select {
 			case <-m.Done:
@@ -712,11 +713,11 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 			default:
 			}
 
-			if group.CN != compareEntryName {
+			if entries.Groups[i].CN != compareEntryName {
 				continue
 			}
 
-			entry = group
+			entry = entries.Groups[i]
 			break
 		}
 	}
@@ -802,7 +803,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	modifyEntryAttr, modifyEntryName, modifyEntrySuffix := getEntryAttrValueSuffix(modifyEntry)
 	switch {
 	case modifyEntrySuffix == "ou="+cfg.UsersOUName+","+cfg.BaseDN:
-		for _, user := range entries.Users {
+		for i := range entries.Users {
 			// handle stop signal
 			select {
 			case <-m.Done:
@@ -814,20 +815,20 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 			var cmpValue string
 			switch modifyEntryAttr {
 			case "cn":
-				cmpValue = user.CN
+				cmpValue = entries.Users[i].CN
 			case "uid":
-				cmpValue = user.UID
+				cmpValue = entries.Users[i].UID
 			}
 
 			if cmpValue != modifyEntryName {
 				continue
 			}
 
-			oldEntry = user
+			oldEntry = entries.Users[i]
 			break
 		}
 	case strings.HasPrefix(modifyEntry, "cn=") && modifyEntrySuffix == "ou="+cfg.GroupsOUName+","+cfg.BaseDN:
-		for _, group := range entries.Groups {
+		for i := range entries.Groups {
 			// handle stop signal
 			select {
 			case <-m.Done:
@@ -836,11 +837,11 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 			default:
 			}
 
-			if group.CN != modifyEntryName {
+			if entries.Groups[i].CN != modifyEntryName {
 				continue
 			}
 
-			oldEntry = group
+			oldEntry = entries.Groups[i]
 			break
 		}
 	}
@@ -857,7 +858,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	// copy entry for modify
 	newEntry := oldEntry
 
-	for _, c := range r.Changes() {
+	for i := range r.Changes() {
 		// handle stop signal
 		select {
 		case <-m.Done:
@@ -867,10 +868,10 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 		}
 
 		// check operation type
-		attrName := string(c.Modification().Type_())
-		opType := c.Operation().Int()
-		log.Infof("client [%d]: modify op=%d attr=%s", m.Client.Numero(), c.Operation(), attrName)
-		if c.Operation().Int() != ldap.ModifyRequestChangeOperationReplace {
+		attrName := string(r.Changes()[i].Modification().Type_())
+		opType := r.Changes()[i].Operation().Int()
+		log.Infof("client [%d]: modify op=%d attr=%s", m.Client.Numero(), r.Changes()[i].Operation(), attrName)
+		if r.Changes()[i].Operation().Int() != ldap.ModifyRequestChangeOperationReplace {
 			diagMessage := fmt.Sprintf("wrong operation %d: only 2 (replace) is supported", opType)
 			res := ldapserver.NewModifyResponse(ldapserver.LDAPResultUnwillingToPerform)
 			res.SetDiagnosticMessage(diagMessage)
@@ -881,7 +882,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 		}
 
 		// modify
-		if err := doModify(&newEntry, attrName, c.Modification().Vals()); err != nil {
+		if err := doModify(&newEntry, attrName, r.Changes()[i].Modification().Vals()); err != nil {
 			res := ldapserver.NewModifyResponse(err.(LDAPError).ResultCode)
 			w.Write(res)
 

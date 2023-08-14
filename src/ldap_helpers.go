@@ -17,8 +17,6 @@ type LDAPError struct {
 	error
 }
 
-var allowedDNAttrs = []string{"cn", "uid", "ou", "dc"}
-
 var (
 	errLDAPNoAttr error = LDAPError{
 		ldap.ResultCodeUndefinedAttributeType,
@@ -46,14 +44,17 @@ func normalizeEntry(s string) string {
 
 // isCorrectDn checks dn syntax
 func isCorrectDn(s string) bool {
-	subs := strings.Split(s, ",")
-	for i := range subs {
-		attrName, _, found := strings.Cut(subs[i], "=")
+	var allowedAttrs = []string{"cn", "uid", "ou", "dc"}
+
+	for _, sub := range strings.Split(s, ",") {
+		var found bool
+
+		attrName, _, found := strings.Cut(sub, "=")
 		if !found {
 			return false
 		}
-		for i := range allowedDNAttrs {
-			if attrName == allowedDNAttrs[i] {
+		for _, attr := range allowedAttrs {
+			if attrName == attr {
 				found = true
 				break
 			}
@@ -81,13 +82,15 @@ func tagValueContains(tag reflect.StructTag, tagName, tagValue string) bool {
 	if !ok {
 		return false
 	}
-	subs := strings.Split(val, ",")
-	for i := range subs {
-		if tagValue == subs[i] {
-			return true
+	var found bool
+	for _, s := range strings.Split(val, ",") {
+		if s != tagValue {
+			continue
 		}
+		found = true
+		break
 	}
-	return false
+	return found
 }
 
 // applySearchFilter returns true if object 'o' fits filter 'f'
@@ -137,8 +140,8 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 			}
 		}
 	case ldap.FilterAnd:
-		for i := range filter {
-			ok, err := applySearchFilter(o, filter[i])
+		for _, _filter := range filter {
+			ok, err := applySearchFilter(o, _filter)
 			if !ok || err != nil {
 				return ok, err
 			}
@@ -147,8 +150,8 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 	case ldap.FilterOr:
 		var anyOk bool
 
-		for i := range filter {
-			ok, err := applySearchFilter(o, filter[i])
+		for _, _filter := range filter {
+			ok, err := applySearchFilter(o, _filter)
 			if err != nil {
 				return false, err
 			}
@@ -190,8 +193,8 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 			return false, nil
 		}
 
-		for i := range attrValues {
-			substringInitial, _ := attrValues[i].(ldap.SubstringInitial)
+		for _, _attrValue := range attrValues {
+			substringInitial, _ := _attrValue.(ldap.SubstringInitial)
 			attrValue := string(substringInitial)
 			switch val := fieldValue.Interface().(type) {
 			case uint:
@@ -233,8 +236,8 @@ func newLDAPAttributeValues(in interface{}) (out []ldap.AttributeValue) {
 	case string:
 		out = append(out, ldap.AttributeValue(in))
 	case []string:
-		for i := range in {
-			out = append(out, ldap.AttributeValue(in[i]))
+		for _, v := range in {
+			out = append(out, ldap.AttributeValue(v))
 		}
 	}
 	return
@@ -250,8 +253,8 @@ func createSearchEntry(o interface{}, attrs []string, entryName string) (e ldap.
 		attrs = append(attrs, "*")
 	}
 
-	for i := range attrs {
-		switch attr := strings.ToLower(attrs[i]); attr {
+	for _, a := range attrs {
+		switch attr := strings.ToLower(a); attr {
 		case "entrydn":
 			e.AddAttribute("entryDN", ldap.AttributeValue(entryName))
 		case "+": // operational only
@@ -293,7 +296,7 @@ func createSearchEntry(o interface{}, attrs []string, entryName string) (e ldap.
 			}
 			fieldValue := reflect.ValueOf(o).FieldByName(field.Name)
 			if fieldValue.IsValid() {
-				e.AddAttribute(ldap.AttributeDescription(attrs[i]), newLDAPAttributeValues(fieldValue.Interface())...)
+				e.AddAttribute(ldap.AttributeDescription(a), newLDAPAttributeValues(fieldValue.Interface())...)
 			}
 		}
 	}
@@ -385,8 +388,8 @@ func doModify(o interface{}, attrName string, values []ldap.AttributeValue) erro
 		}
 		fieldValue.SetString(string(values[0]))
 	case []string:
-		for i := range values {
-			fieldValue.SetString(string(values[i]))
+		for _, v := range values {
+			fieldValue.SetString(string(v))
 		}
 	}
 

@@ -51,8 +51,8 @@ func (b *backend) UpdateData(old, new interface{}) error {
 		}
 
 		var found bool
-		for i := range users {
-			if !reflect.DeepEqual(old, users[i]) {
+		for i, user := range users {
+			if !reflect.DeepEqual(old, user) {
 				continue
 			}
 			users[i] = entry
@@ -74,8 +74,8 @@ func (b *backend) UpdateData(old, new interface{}) error {
 		}
 
 		var found bool
-		for i := range groups {
-			if !reflect.DeepEqual(old, groups[i]) {
+		for i, group := range groups {
+			if !reflect.DeepEqual(old, group) {
 				continue
 			}
 			groups[i] = entry

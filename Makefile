@@ -2,7 +2,7 @@ SERVER_DIR=./examples/rest
 VENV_DIR=$(SERVER_DIR)/.venv
 
 VER=$(shell cat VERSION)
-LD_FLAGS='-s -w -X "main.versionString=$(VER)"'
+LD_FLAGS='-s -w -X "github.com/ps78674/gorestldap/internal/config.VersionString=$(VER)"'
 BUILD_DIR=./build
 INSTDIR=/opt/gorestldap
 
@@ -21,10 +21,10 @@ clean:
 	rm -f gorestldap.tar.gz
 build: 
 	mkdir $(BUILD_DIR)
-	go build -trimpath -ldflags=$(LD_FLAGS) -buildmode=plugin -o $(BUILD_DIR)/backends/file.so src/plugins/file/main.go
-	go build -trimpath -ldflags=$(LD_FLAGS) -buildmode=plugin -o $(BUILD_DIR)/backends/null.so src/plugins/null/main.go
-	go build -trimpath -ldflags=$(LD_FLAGS) -buildmode=plugin -o $(BUILD_DIR)/backends/rest.so src/plugins/rest/main.go
-	go build -trimpath -ldflags=$(LD_FLAGS) -o $(BUILD_DIR)/gorestldap ./src
+	go build -trimpath -ldflags=$(LD_FLAGS) -buildmode=plugin -o $(BUILD_DIR)/backends/file.so backends/file/main.go
+	go build -trimpath -ldflags=$(LD_FLAGS) -buildmode=plugin -o $(BUILD_DIR)/backends/null.so backends/null/main.go
+	go build -trimpath -ldflags=$(LD_FLAGS) -buildmode=plugin -o $(BUILD_DIR)/backends/rest.so backends/rest/main.go
+	go build -trimpath -ldflags=$(LD_FLAGS) -o $(BUILD_DIR)/gorestldap ./cmd/gorestldap
 	install -m 644 config.yaml $(BUILD_DIR)
 install: build
 	test -d $(INSTDIR) || mkdir -p $(INSTDIR)

@@ -1,4 +1,4 @@
-package main
+package ldap
 
 import (
 	"fmt"
@@ -7,7 +7,10 @@ import (
 	"time"
 
 	ldap "github.com/ps78674/goldap/message"
-	"github.com/ps78674/gorestldap/src/internal/data"
+	"github.com/ps78674/gorestldap/internal/backend"
+	"github.com/ps78674/gorestldap/internal/config"
+	"github.com/ps78674/gorestldap/internal/data"
+	"github.com/ps78674/gorestldap/internal/ssha"
 	ldapserver "github.com/ps78674/ldapserver"
 	log "github.com/sirupsen/logrus"
 )
@@ -34,7 +37,7 @@ type additionalData struct {
 }
 
 // handle bind
-func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, cfg *Config) {
+func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName string) {
 	entries.RLock()
 	defer entries.RUnlock()
 
@@ -63,7 +66,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *dat
 	bindEntryAttr, bindEntryName, bindEntrySuffix := getEntryAttrValueSuffix(bindEntry)
 
 	userData := data.User{}
-	if bindEntrySuffix != "ou="+cfg.UsersOUName+","+cfg.BaseDN {
+	if bindEntrySuffix != "ou="+usersOUName+","+baseDN {
 		goto userNotFound
 	}
 
@@ -92,7 +95,7 @@ userNotFound:
 	}
 
 	// validate password
-	ok, err := validatePassword(r.AuthenticationSimple().String(), userData.UserPassword)
+	ok, err := ssha.ValidatePassword(r.AuthenticationSimple().String(), userData.UserPassword)
 	if !ok {
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
 		w.Write(res)
@@ -128,7 +131,7 @@ userNotFound:
 }
 
 // search DSE
-func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message, cfg *Config) {
+func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message, baseDN string) {
 	r := m.GetSearchRequest()
 
 	log.Infof("client [%d]: search base='%s' scope=%d filter='%s'", m.Client.Numero(), r.BaseObject(), r.Scope(), r.FilterString())
@@ -142,10 +145,10 @@ func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message, cfg *Co
 
 	rootDSE := data.DSE{
 		ObjectClass:          []string{"top", "LDAProotDSE"},
-		VendorVersion:        versionString,
+		VendorVersion:        config.VersionString,
 		SupportedLDAPVersion: 3,
 		SupportedControl:     []string{string(ldap.PagedResultsControlOID)},
-		NamingContexts:       []string{cfg.BaseDN},
+		NamingContexts:       []string{baseDN},
 	}
 
 	e := createSearchEntry(rootDSE, searchAttrs, "")
@@ -157,7 +160,7 @@ func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message, cfg *Co
 }
 
 // handle search
-func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, cfg *Config) {
+func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName, groupsOUName string, respectCritical bool) {
 	entries.RLock()
 	defer entries.RUnlock()
 
@@ -201,7 +204,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	log.Infof("client [%d]: search ctrl=%s", m.Client.Numero(), strings.Join(controls, " "))
 
 	// check for unsupported critical controls
-	if gotUCControl && cfg.RespectCritical {
+	if gotUCControl && respectCritical {
 		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnavailableCriticalExtension)
 		w.Write(res)
 
@@ -222,7 +225,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	// setup baseObject
 	var baseObject string
 	if len(r.BaseObject()) == 0 {
-		baseObject = cfg.BaseDN
+		baseObject = baseDN
 	} else {
 		baseObject = normalizeEntry(string(r.BaseObject()))
 	}
@@ -263,7 +266,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	}
 
 	// got match
-	if baseObject == cfg.BaseDN {
+	if baseObject == baseDN {
 		// if searchScope == {base, sub} -> add domain entry
 		if r.Scope() == ldap.SearchRequestScopeBaseObject || r.Scope() == ldap.SearchRequestScopeSubtree {
 			ok, err := applySearchFilter(entries.Domain, r.Filter())
@@ -280,7 +283,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 				sizeLimitReached = true
 				goto end
 			} else if ok {
-				e := createSearchEntry(entries.Domain, searchAttrs, cfg.BaseDN)
+				e := createSearchEntry(entries.Domain, searchAttrs, baseDN)
 				w.Write(e)
 
 				searchControl.sent++
@@ -327,7 +330,7 @@ ous:
 			searchControl.count++
 		}
 
-		entryName := fmt.Sprintf("ou=%s,%s", entries.OUs[i].OU, cfg.BaseDN)
+		entryName := fmt.Sprintf("ou=%s,%s", entries.OUs[i].OU, baseDN)
 
 		// entry does not belong to base object
 		if !strings.HasSuffix(entryName, baseObject) {
@@ -343,10 +346,10 @@ ous:
 		if entryName == baseObject && (r.Scope() == ldap.SearchRequestScopeOneLevel || r.Scope() == ldap.SearchRequestScopeChildren) {
 			searchControl.count = 0
 			switch entries.OUs[i].OU {
-			case cfg.UsersOUName:
+			case usersOUName:
 				searchControl.groupsDone = true
 				goto users
-			case cfg.GroupsOUName:
+			case groupsOUName:
 				searchControl.usersDone = true
 				goto groups
 			}
@@ -418,7 +421,7 @@ users:
 			searchControl.count++
 		}
 
-		entryName := fmt.Sprintf("cn=%s,ou=%s,%s", entries.Users[i].CN, cfg.UsersOUName, cfg.BaseDN)
+		entryName := fmt.Sprintf("cn=%s,ou=%s,%s", entries.Users[i].CN, usersOUName, baseDN)
 
 		// entry does not belong to base object
 		if !strings.HasSuffix(entryName, baseObject) {
@@ -503,7 +506,7 @@ groups:
 			searchControl.count++
 		}
 
-		entryName := fmt.Sprintf("cn=%s,ou=%s,%s", entries.Groups[i].CN, cfg.GroupsOUName, cfg.BaseDN)
+		entryName := fmt.Sprintf("cn=%s,ou=%s,%s", entries.Groups[i].CN, groupsOUName, baseDN)
 
 		// entry does not belong to base object
 		if !strings.HasSuffix(entryName, baseObject) {
@@ -568,7 +571,7 @@ groups:
 end:
 	newControls := ldap.Controls{}
 	if simplePagedResultsControl.PageSize().Int() > 0 {
-		cpCookie := ldap.OCTETSTRING(programName)
+		cpCookie := ldap.OCTETSTRING(config.ProgramName)
 
 		// end search
 		if (searchControl.domainDone && searchControl.ousDone && searchControl.usersDone && searchControl.groupsDone) || sizeLimitReached {
@@ -612,7 +615,7 @@ end:
 }
 
 // handle compare
-func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, cfg *Config) {
+func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName, groupsOUName string) {
 	entries.RLock()
 	defer entries.RUnlock()
 
@@ -659,9 +662,9 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 	var entry interface{}
 	compareEntryAttr, compareEntryName, compareEntrySuffix := getEntryAttrValueSuffix(compareEntry)
 	switch {
-	case compareEntry == cfg.BaseDN:
+	case compareEntry == baseDN:
 		entry = entries.Domain
-	case strings.HasPrefix(compareEntry, "ou=") && compareEntrySuffix == cfg.BaseDN:
+	case strings.HasPrefix(compareEntry, "ou=") && compareEntrySuffix == baseDN:
 		for _, ou := range entries.OUs {
 			// handle stop signal
 			select {
@@ -678,7 +681,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 			entry = ou
 			break
 		}
-	case compareEntrySuffix == "ou="+cfg.UsersOUName+","+cfg.BaseDN:
+	case compareEntrySuffix == "ou="+usersOUName+","+baseDN:
 		for _, user := range entries.Users {
 			// handle stop signal
 			select {
@@ -702,7 +705,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 			entry = user
 			break
 		}
-	case strings.HasPrefix(compareEntry, "cn=") && compareEntrySuffix == "ou="+cfg.GroupsOUName+","+cfg.BaseDN:
+	case strings.HasPrefix(compareEntry, "cn=") && compareEntrySuffix == "ou="+groupsOUName+","+baseDN:
 		for _, group := range entries.Groups {
 			// handle stop signal
 			select {
@@ -755,7 +758,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 }
 
 // handle modify
-func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, cfg *Config, b Backend, ticker *time.Ticker) {
+func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName, groupsOUName string, b backend.Backend, ticker *time.Ticker, updateInterval time.Duration) {
 	entries.RLock()
 	defer entries.RUnlock()
 
@@ -773,7 +776,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	}
 
 	// modify of domain or ou is not supported
-	if modifyEntry == cfg.BaseDN || modifyEntry == "ou="+cfg.UsersOUName+","+cfg.BaseDN || modifyEntry == "ou="+cfg.GroupsOUName+","+cfg.BaseDN {
+	if modifyEntry == baseDN || modifyEntry == "ou="+usersOUName+","+baseDN || modifyEntry == "ou="+groupsOUName+","+baseDN {
 		diagMessage := fmt.Sprintf("modify of '%s' is not supported", modifyEntry)
 		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultUnwillingToPerform)
 		res.SetDiagnosticMessage(diagMessage)
@@ -801,7 +804,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	var oldEntry interface{}
 	modifyEntryAttr, modifyEntryName, modifyEntrySuffix := getEntryAttrValueSuffix(modifyEntry)
 	switch {
-	case modifyEntrySuffix == "ou="+cfg.UsersOUName+","+cfg.BaseDN:
+	case modifyEntrySuffix == "ou="+usersOUName+","+baseDN:
 		for _, user := range entries.Users {
 			// handle stop signal
 			select {
@@ -826,7 +829,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 			oldEntry = user
 			break
 		}
-	case strings.HasPrefix(modifyEntry, "cn=") && modifyEntrySuffix == "ou="+cfg.GroupsOUName+","+cfg.BaseDN:
+	case strings.HasPrefix(modifyEntry, "cn=") && modifyEntrySuffix == "ou="+groupsOUName+","+baseDN:
 		for _, group := range entries.Groups {
 			// handle stop signal
 			select {
@@ -904,7 +907,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	// get updated entries
 	ticker.Reset(time.Millisecond)
 	<-ticker.C
-	ticker.Reset(cfg.UpdateInterval)
+	ticker.Reset(updateInterval)
 
 	// modify OK
 	res := ldapserver.NewModifyResponse(ldapserver.LDAPResultSuccess)

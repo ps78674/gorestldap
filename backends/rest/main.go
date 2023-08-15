@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/ps78674/gorestldap/src/internal/data"
+	"github.com/ps78674/gorestldap/internal/data"
 	log "github.com/sirupsen/logrus"
 	"github.com/valyala/fasthttp"
 	"gopkg.in/yaml.v3"

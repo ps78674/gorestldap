@@ -7,7 +7,7 @@ import (
 	"os"
 	"reflect"
 
-	"github.com/ps78674/gorestldap/src/internal/data"
+	"github.com/ps78674/gorestldap/internal/data"
 	"gopkg.in/yaml.v3"
 )
 

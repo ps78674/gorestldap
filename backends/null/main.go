@@ -3,7 +3,7 @@ package main
 import (
 	"errors"
 
-	"github.com/ps78674/gorestldap/src/internal/data"
+	"github.com/ps78674/gorestldap/internal/data"
 )
 
 type config struct{}

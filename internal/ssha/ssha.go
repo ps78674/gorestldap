@@ -1,4 +1,4 @@
-package main
+package ssha
 
 import (
 	"crypto/sha1"
@@ -6,8 +6,8 @@ import (
 	"errors"
 )
 
-// validatePassword validates password over SSHA hash string
-func validatePassword(password, hash string) (bool, error) {
+// ValidatePassword validates password over SSHA hash string
+func ValidatePassword(password, hash string) (bool, error) {
 	if len(hash) < 7 {
 		return false, errors.New("wrong hash length")
 	}
@@ -31,7 +31,7 @@ func validatePassword(password, hash string) (bool, error) {
 	return false, nil
 }
 
-// createSSHAHash creates SSHA hash
+// createSSHAHash creates salted SSHA hash of a password
 func createSSHAHash(password string, salt []byte) []byte {
 	pass := []byte(password)
 	str := append(pass[:], salt[:]...)

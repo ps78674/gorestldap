@@ -12,7 +12,7 @@ import (
 	"github.com/ps78674/gorestldap/internal/data"
 	"github.com/ps78674/gorestldap/internal/ssha"
 	ldapserver "github.com/ps78674/ldapserver"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
 type clientACL struct {
@@ -37,19 +37,19 @@ type additionalData struct {
 }
 
 // handle bind
-func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName string) {
+func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName string, logger *logrus.Logger) {
 	entries.RLock()
 	defer entries.RUnlock()
 
 	r := m.GetBindRequest()
-	log.Infof("client [%d]: bind dn='%s'", m.Client.Numero(), r.Name())
+	logger.Infof("client [%d]: bind dn='%s'", m.Client.Numero(), r.Name())
 
 	// only simple authentication supported
 	if r.AuthenticationChoice() != "simple" {
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultAuthMethodNotSupported)
 		w.Write(res)
 
-		log.Errorf("client [%d]: bind error: authentication method '%s' is not supported", m.Client.Numero(), r.AuthenticationChoice())
+		logger.Errorf("client [%d]: bind error: authentication method '%s' is not supported", m.Client.Numero(), r.AuthenticationChoice())
 		return
 	}
 
@@ -59,7 +59,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *dat
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultInvalidDNSyntax)
 		w.Write(res)
 
-		log.Errorf("client [%d]: bind error: wrong dn '%s'", m.Client.Numero(), r.Name())
+		logger.Errorf("client [%d]: bind error: wrong dn '%s'", m.Client.Numero(), r.Name())
 		return
 	}
 
@@ -90,7 +90,7 @@ userNotFound:
 		res := ldapserver.NewBindResponse(ldapserver.LDAPResultNoSuchObject)
 		w.Write(res)
 
-		log.Errorf("client [%d]: bind error: dn '%s' not found", m.Client.Numero(), r.Name())
+		logger.Errorf("client [%d]: bind error: dn '%s' not found", m.Client.Numero(), r.Name())
 		return
 	}
 
@@ -105,7 +105,7 @@ userNotFound:
 			errMsg = errMsg + ": " + err.Error()
 		}
 
-		log.Errorf("client [%d]: bind error: %s", m.Client.Numero(), errMsg)
+		logger.Errorf("client [%d]: bind error: %s", m.Client.Numero(), errMsg)
 		return
 	}
 
@@ -127,21 +127,21 @@ userNotFound:
 	res := ldapserver.NewBindResponse(ldapserver.LDAPResultSuccess)
 	w.Write(res)
 
-	log.Infof("client [%d]: bind result=OK", m.Client.Numero())
+	logger.Infof("client [%d]: bind result=OK", m.Client.Numero())
 }
 
 // search DSE
-func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message, baseDN string) {
+func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message, baseDN string, logger *logrus.Logger) {
 	r := m.GetSearchRequest()
 
-	log.Infof("client [%d]: search base='%s' scope=%d filter='%s'", m.Client.Numero(), r.BaseObject(), r.Scope(), r.FilterString())
+	logger.Infof("client [%d]: search base='%s' scope=%d filter='%s'", m.Client.Numero(), r.BaseObject(), r.Scope(), r.FilterString())
 
 	searchAttrs := []string{}
 	for _, attr := range r.Attributes() {
 		searchAttrs = append(searchAttrs, string(attr))
 	}
 
-	log.Infof("client [%d]: search attr=%s", m.Client.Numero(), strings.Join(searchAttrs, " "))
+	logger.Infof("client [%d]: search attr=%s", m.Client.Numero(), strings.Join(searchAttrs, " "))
 
 	rootDSE := data.DSE{
 		ObjectClass:          []string{"top", "LDAProotDSE"},
@@ -156,24 +156,24 @@ func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message, baseDN 
 	w.Write(e)
 	w.Write(ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultSuccess))
 
-	log.Infof("client [%d]: search result=OK nentries=1", m.Client.Numero())
+	logger.Infof("client [%d]: search result=OK nentries=1", m.Client.Numero())
 }
 
 // handle search
-func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName, groupsOUName string, respectCritical bool) {
+func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName, groupsOUName string, respectCritical bool, logger *logrus.Logger) {
 	entries.RLock()
 	defer entries.RUnlock()
 
 	r := m.GetSearchRequest()
 
-	log.Infof("client [%d]: search base='%s' scope=%d filter='%s'", m.Client.Numero(), r.BaseObject(), r.Scope(), r.FilterString())
+	logger.Infof("client [%d]: search base='%s' scope=%d filter='%s'", m.Client.Numero(), r.BaseObject(), r.Scope(), r.FilterString())
 
 	searchAttrs := []string{}
 	for _, attr := range r.Attributes() {
 		searchAttrs = append(searchAttrs, string(attr))
 	}
 
-	log.Infof("client [%d]: search attr=%s", m.Client.Numero(), strings.Join(searchAttrs, " "))
+	logger.Infof("client [%d]: search attr=%s", m.Client.Numero(), strings.Join(searchAttrs, " "))
 
 	// check requested controls
 	var controls []string
@@ -187,7 +187,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 				controls = append(controls, c.ControlType().String())
 				c, err := ldap.ReadPagedResultsControl(c.ControlValue())
 				if err != nil {
-					log.Errorf("client [%d]: error decoding pagedResultsControl: %s", m.Client.Numero(), err)
+					logger.Errorf("client [%d]: error decoding pagedResultsControl: %s", m.Client.Numero(), err)
 				}
 				simplePagedResultsControl = c
 			default:
@@ -201,23 +201,23 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 		}
 	}
 
-	log.Infof("client [%d]: search ctrl=%s", m.Client.Numero(), strings.Join(controls, " "))
+	logger.Infof("client [%d]: search ctrl=%s", m.Client.Numero(), strings.Join(controls, " "))
 
 	// check for unsupported critical controls
 	if gotUCControl && respectCritical {
 		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultUnavailableCriticalExtension)
 		w.Write(res)
 
-		log.Errorf("client [%d]: search error: got unsupported critical controls, aborting", m.Client.Numero())
+		logger.Errorf("client [%d]: search error: got unsupported critical controls, aborting", m.Client.Numero())
 		return
 	}
 
-	log.Infof("client [%d]: search sizelimit=%d pagesize=%d", m.Client.Numero(), r.SizeLimit(), simplePagedResultsControl.PageSize())
+	logger.Infof("client [%d]: search sizelimit=%d pagesize=%d", m.Client.Numero(), r.SizeLimit(), simplePagedResultsControl.PageSize())
 
 	// handle stop signal
 	select {
 	case <-m.Done:
-		log.Infof("client [%d]: leaving handleSearch...", m.Client.Numero())
+		logger.Infof("client [%d]: leaving handleSearch...", m.Client.Numero())
 		return
 	default:
 	}
@@ -243,7 +243,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 		res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultNoSuchObject)
 		w.Write(res)
 
-		log.Warnf("client [%d]: search insufficient access", m.Client.Numero())
+		logger.Warnf("client [%d]: search insufficient access", m.Client.Numero())
 		return
 	}
 
@@ -275,7 +275,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 				res.SetDiagnosticMessage(err.Error())
 				w.Write(res)
 
-				log.Errorf("client [%d]: search error: %s", m.Client.Numero(), err)
+				logger.Errorf("client [%d]: search error: %s", m.Client.Numero(), err)
 				return
 			}
 
@@ -317,7 +317,7 @@ ous:
 		// handle stop signal
 		select {
 		case <-m.Done:
-			log.Infof("client [%d]: leaving handleSearch...", m.Client.Numero())
+			logger.Infof("client [%d]: leaving handleSearch...", m.Client.Numero())
 			return
 		default:
 		}
@@ -368,7 +368,7 @@ ous:
 			res.SetDiagnosticMessage(err.Error())
 			w.Write(res)
 
-			log.Errorf("client [%d]: search error: %s", m.Client.Numero(), err)
+			logger.Errorf("client [%d]: search error: %s", m.Client.Numero(), err)
 			return
 		}
 
@@ -408,7 +408,7 @@ users:
 		// handle stop signal
 		select {
 		case <-m.Done:
-			log.Infof("client [%d]: leaving handleSearch...", m.Client.Numero())
+			logger.Infof("client [%d]: leaving handleSearch...", m.Client.Numero())
 			return
 		default:
 		}
@@ -453,7 +453,7 @@ users:
 			res.SetDiagnosticMessage(err.Error())
 			w.Write(res)
 
-			log.Errorf("client [%d]: search error: %s", m.Client.Numero(), err)
+			logger.Errorf("client [%d]: search error: %s", m.Client.Numero(), err)
 			return
 		}
 
@@ -493,7 +493,7 @@ groups:
 		// handle stop signal
 		select {
 		case <-m.Done:
-			log.Infof("client [%d]: leaving handleSearch...", m.Client.Numero())
+			logger.Infof("client [%d]: leaving handleSearch...", m.Client.Numero())
 			return
 		default:
 		}
@@ -538,7 +538,7 @@ groups:
 			res.SetDiagnosticMessage(err.Error())
 			w.Write(res)
 
-			log.Errorf("client [%d]: search error: %s", m.Client.Numero(), err)
+			logger.Errorf("client [%d]: search error: %s", m.Client.Numero(), err)
 			return
 		}
 
@@ -586,7 +586,7 @@ end:
 			res := ldapserver.NewSearchResultDoneResponse(ldapserver.LDAPResultProtocolError)
 			w.Write(res)
 
-			log.Errorf("client [%d]: search error: error encoding pagedResultsControl: %s", m.Client.Numero(), err)
+			logger.Errorf("client [%d]: search error: error encoding pagedResultsControl: %s", m.Client.Numero(), err)
 			return
 		}
 
@@ -611,17 +611,17 @@ end:
 	ldap.SetMessageControls(responseMessage, newControls)
 	w.WriteMessage(responseMessage)
 
-	log.Infof("client [%d]: search result=OK nentries=%d", m.Client.Numero(), entriesWritten)
+	logger.Infof("client [%d]: search result=OK nentries=%d", m.Client.Numero(), entriesWritten)
 }
 
 // handle compare
-func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName, groupsOUName string) {
+func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName, groupsOUName string, logger *logrus.Logger) {
 	entries.RLock()
 	defer entries.RUnlock()
 
 	r := m.GetCompareRequest()
 	attrName := string(r.Ava().AttributeDesc())
-	log.Infof("client [%d]: compare dn='%s' attr='%s'", m.Client.Numero(), r.Entry(), attrName)
+	logger.Infof("client [%d]: compare dn='%s' attr='%s'", m.Client.Numero(), r.Entry(), attrName)
 
 	// check compare entry dn
 	compareEntry := normalizeEntry(string(r.Entry()))
@@ -629,7 +629,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultInvalidDNSyntax)
 		w.Write(res)
 
-		log.Errorf("client [%d]: compare error: wrong dn '%s'", m.Client.Numero(), r.Entry())
+		logger.Errorf("client [%d]: compare error: wrong dn '%s'", m.Client.Numero(), r.Entry())
 		return
 	}
 
@@ -640,7 +640,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
-		log.Errorf("client [%d]: compare error: %s", m.Client.Numero(), diagMessage)
+		logger.Errorf("client [%d]: compare error: %s", m.Client.Numero(), diagMessage)
 		return
 	}
 
@@ -655,7 +655,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultInsufficientAccessRights)
 		w.Write(res)
 
-		log.Warnf("client [%d]: compare insufficient access", m.Client.Numero())
+		logger.Warnf("client [%d]: compare insufficient access", m.Client.Numero())
 		return
 	}
 
@@ -669,7 +669,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 			// handle stop signal
 			select {
 			case <-m.Done:
-				log.Infof("client [%d]: leaving handleCompare...", m.Client.Numero())
+				logger.Infof("client [%d]: leaving handleCompare...", m.Client.Numero())
 				return
 			default:
 			}
@@ -686,7 +686,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 			// handle stop signal
 			select {
 			case <-m.Done:
-				log.Infof("client [%d]: leaving handleCompare...", m.Client.Numero())
+				logger.Infof("client [%d]: leaving handleCompare...", m.Client.Numero())
 				return
 			default:
 			}
@@ -710,7 +710,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 			// handle stop signal
 			select {
 			case <-m.Done:
-				log.Infof("client [%d]: leaving handleCompare...", m.Client.Numero())
+				logger.Infof("client [%d]: leaving handleCompare...", m.Client.Numero())
 				return
 			default:
 			}
@@ -729,7 +729,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultNoSuchObject)
 		w.Write(res)
 
-		log.Errorf("client [%d]: compare error: target entry not found", m.Client.Numero())
+		logger.Errorf("client [%d]: compare error: target entry not found", m.Client.Numero())
 		return
 	}
 
@@ -739,14 +739,14 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 		res := ldapserver.NewCompareResponse(err.(LDAPError).ResultCode)
 		w.Write(res)
 
-		log.Errorf("client [%d]: compare error: %s", m.Client.Numero(), err)
+		logger.Errorf("client [%d]: compare error: %s", m.Client.Numero(), err)
 		return
 	}
 	if !ok {
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareFalse)
 		w.Write(res)
 
-		log.Infof("client [%d]: compare result=FALSE", m.Client.Numero())
+		logger.Infof("client [%d]: compare result=FALSE", m.Client.Numero())
 		return
 	}
 
@@ -754,16 +754,16 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 	res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareTrue)
 	w.Write(res)
 
-	log.Infof("client [%d]: compare result=TRUE", m.Client.Numero())
+	logger.Infof("client [%d]: compare result=TRUE", m.Client.Numero())
 }
 
 // handle modify
-func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName, groupsOUName string, b backend.Backend, ticker *time.Ticker, updateInterval time.Duration) {
+func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName, groupsOUName string, b backend.Backend, ticker *time.Ticker, updateInterval time.Duration, logger *logrus.Logger) {
 	entries.RLock()
 	defer entries.RUnlock()
 
 	r := m.GetModifyRequest()
-	log.Infof("client [%d]: modify dn='%s'", m.Client.Numero(), r.Object())
+	logger.Infof("client [%d]: modify dn='%s'", m.Client.Numero(), r.Object())
 
 	// check modify entry dn
 	modifyEntry := normalizeEntry(string(r.Object()))
@@ -771,7 +771,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultInvalidDNSyntax)
 		w.Write(res)
 
-		log.Errorf("client [%d]: modify error: wrong dn '%s'", m.Client.Numero(), r.Object())
+		logger.Errorf("client [%d]: modify error: wrong dn '%s'", m.Client.Numero(), r.Object())
 		return
 	}
 
@@ -782,7 +782,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
-		log.Errorf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
+		logger.Errorf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
 		return
 	}
 
@@ -797,7 +797,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultInsufficientAccessRights)
 		w.Write(res)
 
-		log.Warnf("client [%d]: modify insufficient access", m.Client.Numero())
+		logger.Warnf("client [%d]: modify insufficient access", m.Client.Numero())
 		return
 	}
 
@@ -809,7 +809,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 			// handle stop signal
 			select {
 			case <-m.Done:
-				log.Infof("client [%d]: leaving handleModify...", m.Client.Numero())
+				logger.Infof("client [%d]: leaving handleModify...", m.Client.Numero())
 				return
 			default:
 			}
@@ -834,7 +834,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 			// handle stop signal
 			select {
 			case <-m.Done:
-				log.Infof("client [%d]: leaving handleModify...", m.Client.Numero())
+				logger.Infof("client [%d]: leaving handleModify...", m.Client.Numero())
 				return
 			default:
 			}
@@ -853,7 +853,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultNoSuchObject)
 		w.Write(res)
 
-		log.Errorf("client [%d]: modify error: target entry not found", m.Client.Numero())
+		logger.Errorf("client [%d]: modify error: target entry not found", m.Client.Numero())
 		return
 	}
 
@@ -864,7 +864,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 		// handle stop signal
 		select {
 		case <-m.Done:
-			log.Infof("client [%d]: leaving handleModify...", m.Client.Numero())
+			logger.Infof("client [%d]: leaving handleModify...", m.Client.Numero())
 			return
 		default:
 		}
@@ -872,14 +872,14 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 		// check operation type
 		attrName := string(c.Modification().Type_())
 		opType := c.Operation().Int()
-		log.Infof("client [%d]: modify op=%d attr=%s", m.Client.Numero(), c.Operation(), attrName)
+		logger.Infof("client [%d]: modify op=%d attr=%s", m.Client.Numero(), c.Operation(), attrName)
 		if c.Operation().Int() != ldap.ModifyRequestChangeOperationReplace {
 			diagMessage := fmt.Sprintf("wrong operation %d: only 2 (replace) is supported", opType)
 			res := ldapserver.NewModifyResponse(ldapserver.LDAPResultUnwillingToPerform)
 			res.SetDiagnosticMessage(diagMessage)
 			w.Write(res)
 
-			log.Errorf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
+			logger.Errorf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
 			return
 		}
 
@@ -888,7 +888,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 			res := ldapserver.NewModifyResponse(err.(LDAPError).ResultCode)
 			w.Write(res)
 
-			log.Errorf("client [%d]: modify error: %s", m.Client.Numero(), err)
+			logger.Errorf("client [%d]: modify error: %s", m.Client.Numero(), err)
 			return
 		}
 	}
@@ -900,7 +900,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 		res.SetDiagnosticMessage(diagMessage)
 		w.Write(res)
 
-		log.Errorf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
+		logger.Errorf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
 		return
 	}
 
@@ -913,5 +913,5 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	res := ldapserver.NewModifyResponse(ldapserver.LDAPResultSuccess)
 	w.Write(res)
 
-	log.Infof("client [%d]: modify result=OK", m.Client.Numero())
+	logger.Infof("client [%d]: modify result=OK", m.Client.Numero())
 }

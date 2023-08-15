@@ -12,8 +12,7 @@ import (
 	"github.com/ps78674/gorestldap/internal/config"
 	"github.com/ps78674/gorestldap/internal/http"
 	"github.com/ps78674/gorestldap/internal/ldap"
-	ldapserver "github.com/ps78674/ldapserver"
-	log "github.com/sirupsen/logrus"
+	"github.com/ps78674/gorestldap/internal/logger"
 	"github.com/valyala/fasthttp"
 )
 
@@ -25,40 +24,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	// setup logging
-	if len(cfg.LogPath) > 0 {
-		f, err := os.OpenFile(cfg.LogPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-		if err != nil {
-			fmt.Printf("error opening logfile: %s\n", err)
-			os.Exit(1)
-		}
-		defer f.Close()
-		log.SetOutput(f)
+	// create logger
+	logger, err := logger.NewLogger(cfg.LogPath, cfg.Debug, cfg.LogTimestamp, cfg.LogCaller)
+	if err != nil {
+		fmt.Printf("error creating logger: %s", err)
+		os.Exit(1)
 	}
-	if cfg.Debug {
-		log.SetLevel(log.DebugLevel)
-	}
-	var logFormatter log.TextFormatter
-	logFormatter.FullTimestamp = true
-	if !cfg.LogTimestamp {
-		logFormatter.DisableTimestamp = true
-	}
-	log.SetFormatter(&logFormatter)
-	log.SetReportCaller(cfg.LogCaller)
-	ldapserver.SetupLogger(log.StandardLogger())
 
 	// open backend
 	backendPath := path.Join(cfg.BackendDir, cfg.BackendName+".so")
-	log.Debugf("loading backend %s", backendPath)
+	logger.Debugf("loading backend '%s'", backendPath)
 	backend, err := backend.Open(backendPath, cfg.Backends[cfg.BackendName])
 	if err != nil {
-		log.Fatalf("error opening backend: %s", err)
+		logger.Fatalf("error opening backend: %s", err)
 	}
 
 	// get initial data
 	users, groups, err := backend.GetData()
 	if err != nil {
-		log.Fatalf("error getting data: %s", err)
+		logger.Fatalf("error getting data: %s", err)
 	}
 
 	// get entries
@@ -71,25 +55,24 @@ func main() {
 	defer ticker.Stop()
 
 	// create new LDAP Server
-	ldapServer, err := ldap.NewServer(entries, cfg.BaseDN, cfg.UsersOUName, cfg.GroupsOUName, cfg.RespectCritical, cfg.UpdateInterval, backend, ticker)
+	ldapServer, err := ldap.NewServer(entries, cfg.BaseDN, cfg.UsersOUName, cfg.GroupsOUName, cfg.RespectCritical, cfg.UpdateInterval, backend, ticker, logger)
 	if err != nil {
-		log.Fatalf("error creating ldap server: %s", err)
+		logger.Fatalf("error creating ldap server: %s", err)
 	}
 
 	// listen and serve
+	logger.Infof("starting ldap server on '%s'", cfg.ListenAddr)
 	switch cfg.UseTLS {
 	case false:
-		log.Infof("starting ldap server on '%s'", cfg.ListenAddr)
 		go func() {
 			if err := ldapServer.ListenAndServe(cfg.ListenAddr); err != nil {
-				log.Fatalf("error starting server: %s\n", err)
+				logger.Fatalf("error starting server: %s\n", err)
 			}
 		}()
 	case true:
-		log.Infof("starting ldaps server on '%s'", cfg.ListenAddr)
 		go func() {
 			if err := ldapServer.ListenAndServeTLS(cfg.ListenAddr, cfg.ServerCert, cfg.ServerKey); err != nil {
-				log.Fatalf("error starting server: %s\n", err)
+				logger.Fatalf("error starting server: %s\n", err)
 			}
 		}()
 	}
@@ -97,13 +80,11 @@ func main() {
 	// create http server
 	var httpServer *fasthttp.Server
 	if len(cfg.CallbackListenAddr) > 0 {
-		log.Infof("starting http server on '%s'", cfg.CallbackListenAddr)
-
-		httpServer = http.NewServer(cfg.CallbackAuthToken, cfg.UpdateInterval, ticker)
-
+		logger.Infof("starting http server on '%s'", cfg.CallbackListenAddr)
+		httpServer = http.NewServer(cfg.CallbackAuthToken, cfg.UpdateInterval, ticker, logger)
 		go func() {
 			if err := httpServer.ListenAndServe(cfg.CallbackListenAddr); err != nil {
-				log.Fatalf("http server error: %s", err)
+				logger.Fatalf("http server error: %s", err)
 			}
 		}()
 	}
@@ -112,22 +93,22 @@ func main() {
 	go func() {
 		for range ticker.C {
 			func() {
-				log.Info("updating entries data")
+				logger.Info("updating entries data")
 
 				entries.Lock()
 				defer entries.Unlock()
 
-				log.Debug("getting backend data")
+				logger.Debug("getting backend data")
 				users, groups, err := backend.GetData()
 				if err != nil {
-					log.Errorf("error getting data: %s", err)
+					logger.Errorf("error getting data: %s", err)
 					return
 				}
 
 				entries.Users = users
 				entries.Groups = groups
 
-				log.Debug("entries updated")
+				logger.Debug("entries updated")
 			}()
 		}
 	}()
@@ -149,10 +130,11 @@ func main() {
 	signal.Notify(chStop, syscall.SIGINT, syscall.SIGTERM)
 	<-chStop
 
+	logger.Info("shutting down")
 	httpServer.Shutdown()
-	log.Info("gracefully closing client connections")
+	logger.Debug("gracefully closing client connections")
 	ldapServer.Stop()
-	log.Info("all client connections closed")
+	logger.Debug("all client connections closed")
 
 	signal.Stop(chStop)
 	close(chStop)

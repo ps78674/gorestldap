@@ -7,31 +7,31 @@ import (
 	"github.com/ps78674/gorestldap/internal/backend"
 	"github.com/ps78674/gorestldap/internal/data"
 	ldapserver "github.com/ps78674/ldapserver"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
-func NewServer(entries *data.Entries, baseDN, usersOUName, groupsOUName string, respectCritical bool, updateInterval time.Duration, backend backend.Backend, ticker *time.Ticker) (*ldapserver.Server, error) {
+func NewServer(entries *data.Entries, baseDN, usersOUName, groupsOUName string, respectCritical bool, updateInterval time.Duration, backend backend.Backend, ticker *time.Ticker, logger *logrus.Logger) (*ldapserver.Server, error) {
 	// create server
 	s := ldapserver.NewServer()
 
-	log.Debug("registering handlers")
+	logger.Debug("registering handlers")
 
 	// create route bindings
 	routes := ldapserver.NewRouteMux()
 	routes.Bind(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-		handleBind(w, m, entries, baseDN, usersOUName)
+		handleBind(w, m, entries, baseDN, usersOUName, logger)
 	})
 	routes.Search(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-		handleSearchDSE(w, m, baseDN)
+		handleSearchDSE(w, m, baseDN, logger)
 	}).BaseDn("").Scope(ldapserver.SearchRequestScopeBaseObject).Filter("(objectclass=*)")
 	routes.Search(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-		handleSearch(w, m, entries, baseDN, usersOUName, groupsOUName, respectCritical)
+		handleSearch(w, m, entries, baseDN, usersOUName, groupsOUName, respectCritical, logger)
 	})
 	routes.Compare(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-		handleCompare(w, m, entries, baseDN, usersOUName, groupsOUName)
+		handleCompare(w, m, entries, baseDN, usersOUName, groupsOUName, logger)
 	})
 	routes.Modify(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-		handleModify(w, m, entries, baseDN, usersOUName, groupsOUName, backend, ticker, updateInterval)
+		handleModify(w, m, entries, baseDN, usersOUName, groupsOUName, backend, ticker, updateInterval, logger)
 	})
 
 	// attach routes to server

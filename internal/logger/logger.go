@@ -17,11 +17,11 @@ func NewLogger(path string, debug, logTimestamp, logCaller bool) (*logrus.Logger
 			return nil, fmt.Errorf("error opening logfile: %s", err)
 		}
 		defer f.Close()
-		logrus.SetOutput(f)
+		l.SetOutput(f)
 	}
 
 	if debug {
-		logrus.SetLevel(logrus.DebugLevel)
+		l.SetLevel(logrus.DebugLevel)
 	}
 
 	var logFormatter logrus.TextFormatter
@@ -29,11 +29,11 @@ func NewLogger(path string, debug, logTimestamp, logCaller bool) (*logrus.Logger
 	if !logTimestamp {
 		logFormatter.DisableTimestamp = true
 	}
-	logrus.SetFormatter(&logFormatter)
+	l.SetFormatter(&logFormatter)
 
-	logrus.SetReportCaller(logCaller)
+	l.SetReportCaller(logCaller)
 
-	ldapserver.SetupLogger(logrus.StandardLogger())
+	ldapserver.SetupLogger(l)
 
 	return l, nil
 }

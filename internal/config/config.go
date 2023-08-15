@@ -96,7 +96,7 @@ func (c *Config) Init() error {
 	}
 
 	// normalize baseDN
-	// c.BaseDN = normalizeEntry(c.BaseDN)
+	// c.BaseDN = ldap.NormalizeEntry(c.BaseDN)
 
 	c.UsersOUName = strings.ToLower(c.UsersOUName)
 	c.GroupsOUName = strings.ToLower(c.GroupsOUName)

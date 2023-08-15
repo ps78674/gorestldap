@@ -4,133 +4,14 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-	"time"
 
 	ldap "github.com/ps78674/goldap/message"
-	"github.com/ps78674/gorestldap/internal/backend"
 	"github.com/ps78674/gorestldap/internal/config"
 	"github.com/ps78674/gorestldap/internal/data"
-	"github.com/ps78674/gorestldap/internal/ssha"
 	ldapserver "github.com/ps78674/ldapserver"
 	"github.com/sirupsen/logrus"
 )
 
-type clientACL struct {
-	bindEntry string
-	search    bool
-	compare   bool
-	modify    bool
-}
-
-type clientSearchControl struct {
-	domainDone bool
-	ousDone    bool
-	usersDone  bool
-	groupsDone bool
-	count      int
-	sent       int
-}
-
-type additionalData struct {
-	acl clientACL
-	sc  clientSearchControl
-}
-
-// handle bind
-func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName string, logger *logrus.Logger) {
-	entries.RLock()
-	defer entries.RUnlock()
-
-	r := m.GetBindRequest()
-	logger.Infof("client [%d]: bind dn='%s'", m.Client.Numero(), r.Name())
-
-	// only simple authentication supported
-	if r.AuthenticationChoice() != "simple" {
-		res := ldapserver.NewBindResponse(ldapserver.LDAPResultAuthMethodNotSupported)
-		w.Write(res)
-
-		logger.Errorf("client [%d]: bind error: authentication method '%s' is not supported", m.Client.Numero(), r.AuthenticationChoice())
-		return
-	}
-
-	// check bind entry dn
-	bindEntry := normalizeEntry(string(r.Name()))
-	if !isCorrectDn(bindEntry) {
-		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultInvalidDNSyntax)
-		w.Write(res)
-
-		logger.Errorf("client [%d]: bind error: wrong dn '%s'", m.Client.Numero(), r.Name())
-		return
-	}
-
-	bindEntryAttr, bindEntryName, bindEntrySuffix := getEntryAttrValueSuffix(bindEntry)
-
-	userData := data.User{}
-	if bindEntrySuffix != "ou="+usersOUName+","+baseDN {
-		goto userNotFound
-	}
-
-	for _, user := range entries.Users {
-		var cmpValue string
-		switch bindEntryAttr {
-		case "cn":
-			cmpValue = user.CN
-		case "uid":
-			cmpValue = user.UID
-		}
-		if cmpValue != bindEntryName {
-			continue
-		}
-		userData = user
-	}
-
-userNotFound:
-	// got empty struct -> user not found
-	if reflect.DeepEqual(userData, data.User{}) {
-		res := ldapserver.NewBindResponse(ldapserver.LDAPResultNoSuchObject)
-		w.Write(res)
-
-		logger.Errorf("client [%d]: bind error: dn '%s' not found", m.Client.Numero(), r.Name())
-		return
-	}
-
-	// validate password
-	ok, err := ssha.ValidatePassword(r.AuthenticationSimple().String(), userData.UserPassword)
-	if !ok {
-		res := ldapserver.NewBindResponse(ldapserver.LDAPResultInvalidCredentials)
-		w.Write(res)
-
-		errMsg := fmt.Sprintf("wrong password for dn '%s'", r.Name())
-		if err != nil {
-			errMsg = errMsg + ": " + err.Error()
-		}
-
-		logger.Errorf("client [%d]: bind error: %s", m.Client.Numero(), errMsg)
-		return
-	}
-
-	// set ACLs
-	acl := clientACL{
-		bindEntry: bindEntry,
-	}
-	if userData.LDAPAdmin {
-		acl = clientACL{
-			search:  true,
-			compare: true,
-			modify:  true,
-		}
-	}
-
-	// update additional data with created ACLs
-	m.Client.SetAddData(additionalData{acl: acl})
-
-	res := ldapserver.NewBindResponse(ldapserver.LDAPResultSuccess)
-	w.Write(res)
-
-	logger.Infof("client [%d]: bind result=OK", m.Client.Numero())
-}
-
-// search DSE
 func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message, baseDN string, logger *logrus.Logger) {
 	r := m.GetSearchRequest()
 
@@ -159,7 +40,6 @@ func handleSearchDSE(w ldapserver.ResponseWriter, m *ldapserver.Message, baseDN 
 	logger.Infof("client [%d]: search result=OK nentries=1", m.Client.Numero())
 }
 
-// handle search
 func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName, groupsOUName string, respectCritical bool, logger *logrus.Logger) {
 	entries.RLock()
 	defer entries.RUnlock()
@@ -227,7 +107,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	if len(r.BaseObject()) == 0 {
 		baseObject = baseDN
 	} else {
-		baseObject = normalizeEntry(string(r.BaseObject()))
+		baseObject = NormalizeEntry(string(r.BaseObject()))
 	}
 
 	// get ACLs & search control
@@ -614,304 +494,213 @@ end:
 	logger.Infof("client [%d]: search result=OK nentries=%d", m.Client.Numero(), entriesWritten)
 }
 
-// handle compare
-func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName, groupsOUName string, logger *logrus.Logger) {
-	entries.RLock()
-	defer entries.RUnlock()
+// applySearchFilter returns true if object 'o' fits filter 'f'
+func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
+	switch filter := f.(type) {
+	case ldap.FilterEqualityMatch:
+		attrName := string(filter.AttributeDesc())
+		attrValue := string(filter.AssertionValue())
 
-	r := m.GetCompareRequest()
-	attrName := string(r.Ava().AttributeDesc())
-	logger.Infof("client [%d]: compare dn='%s' attr='%s'", m.Client.Numero(), r.Entry(), attrName)
-
-	// check compare entry dn
-	compareEntry := normalizeEntry(string(r.Entry()))
-	if !isCorrectDn(compareEntry) {
-		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultInvalidDNSyntax)
-		w.Write(res)
-
-		logger.Errorf("client [%d]: compare error: wrong dn '%s'", m.Client.Numero(), r.Entry())
-		return
-	}
-
-	// compare for entryDN is not supported
-	if strings.ToLower(attrName) == "entrydn" {
-		diagMessage := "compare over entrydn is not supported"
-		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultUnwillingToPerform)
-		res.SetDiagnosticMessage(diagMessage)
-		w.Write(res)
-
-		logger.Errorf("client [%d]: compare error: %s", m.Client.Numero(), diagMessage)
-		return
-	}
-
-	// get ACLs
-	acl := clientACL{}
-	if addData := m.Client.GetAddData(); addData != nil {
-		acl = addData.(additionalData).acl
-	}
-
-	// non-admin can only compare by own entry
-	if !acl.compare && compareEntry != acl.bindEntry {
-		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultInsufficientAccessRights)
-		w.Write(res)
-
-		logger.Warnf("client [%d]: compare insufficient access", m.Client.Numero())
-		return
-	}
-
-	var entry interface{}
-	compareEntryAttr, compareEntryName, compareEntrySuffix := getEntryAttrValueSuffix(compareEntry)
-	switch {
-	case compareEntry == baseDN:
-		entry = entries.Domain
-	case strings.HasPrefix(compareEntry, "ou=") && compareEntrySuffix == baseDN:
-		for _, ou := range entries.OUs {
-			// handle stop signal
-			select {
-			case <-m.Done:
-				logger.Infof("client [%d]: leaving handleCompare...", m.Client.Numero())
-				return
-			default:
-			}
-
-			if ou.OU != compareEntryName {
-				continue
-			}
-
-			entry = ou
-			break
+		if strings.ToLower(attrName) == "entrydn" {
+			entry := NormalizeEntry(string(filter.AssertionValue()))
+			attrName, attrValue, _ = getEntryAttrValueSuffix(entry)
 		}
-	case compareEntrySuffix == "ou="+usersOUName+","+baseDN:
-		for _, user := range entries.Users {
-			// handle stop signal
-			select {
-			case <-m.Done:
-				logger.Infof("client [%d]: leaving handleCompare...", m.Client.Numero())
-				return
-			default:
-			}
 
-			var cmpValue string
-			switch compareEntryAttr {
-			case "cn":
-				cmpValue = user.CN
-			case "uid":
-				cmpValue = user.UID
-			}
-			if cmpValue != compareEntryName {
-				continue
-			}
-
-			entry = user
-			break
+		field, found := reflect.TypeOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
+		if !found {
+			return false, nil
 		}
-	case strings.HasPrefix(compareEntry, "cn=") && compareEntrySuffix == "ou="+groupsOUName+","+baseDN:
-		for _, group := range entries.Groups {
-			// handle stop signal
-			select {
-			case <-m.Done:
-				logger.Infof("client [%d]: leaving handleCompare...", m.Client.Numero())
-				return
-			default:
-			}
 
-			if group.CN != compareEntryName {
-				continue
-			}
-
-			entry = group
-			break
+		fieldValue := reflect.ValueOf(o).FieldByName(field.Name)
+		if !fieldValue.IsValid() {
+			return false, nil
 		}
+
+		switch val := fieldValue.Interface().(type) {
+		case uint:
+			if fmt.Sprint(val) == attrValue {
+				return true, nil
+			}
+		case string:
+			if !tagValueContains(field.Tag, "ldap", "case_sensitive_value") {
+				val = strings.ToLower(val)
+				attrValue = strings.ToLower(attrValue)
+			}
+			if val == attrValue {
+				return true, nil
+			}
+		case []string:
+			for _, v := range val {
+				if !tagValueContains(field.Tag, "ldap", "case_sensitive_value") {
+					v = strings.ToLower(v)
+					attrValue = strings.ToLower(attrValue)
+				}
+				if v == attrValue {
+					return true, nil
+				}
+			}
+		}
+	case ldap.FilterAnd:
+		for _, _filter := range filter {
+			ok, err := applySearchFilter(o, _filter)
+			if !ok || err != nil {
+				return ok, err
+			}
+		}
+		return true, nil
+	case ldap.FilterOr:
+		var anyOk bool
+
+		for _, _filter := range filter {
+			ok, err := applySearchFilter(o, _filter)
+			if err != nil {
+				return false, err
+			}
+			if ok {
+				anyOk = true
+			}
+		}
+
+		if anyOk {
+			return true, nil
+		}
+	case ldap.FilterPresent:
+		attrName := fmt.Sprintf("%v", filter)
+		if strings.ToLower(attrName) == "entrydn" {
+			return true, nil
+		}
+
+		field, found := reflect.TypeOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
+		if !found {
+			return false, nil
+		}
+
+		tagValue := field.Tag.Get("json")
+		tagValue, _, _ = strings.Cut(tagValue, ",")
+		if strings.EqualFold(attrName, tagValue) {
+			return true, nil
+		}
+	case ldap.FilterSubstrings:
+		attrName := string(filter.Type_())
+		attrValues := filter.Substrings()
+
+		field, found := reflect.TypeOf(o).FieldByNameFunc(func(s string) bool { return strings.EqualFold(s, attrName) })
+		if !found {
+			return false, nil
+		}
+
+		fieldValue := reflect.ValueOf(o).FieldByName(field.Name)
+		if !fieldValue.IsValid() {
+			return false, nil
+		}
+
+		for _, _attrValue := range attrValues {
+			substringInitial, _ := _attrValue.(ldap.SubstringInitial)
+			attrValue := string(substringInitial)
+			switch val := fieldValue.Interface().(type) {
+			case uint:
+				if strings.HasPrefix(fmt.Sprint(val), attrValue) {
+					return true, nil
+				}
+			case string:
+				if !tagValueContains(field.Tag, "ldap", "case_sensitive_value") {
+					val = strings.ToLower(val)
+					attrValue = strings.ToLower(attrValue)
+				}
+				if strings.HasPrefix(val, attrValue) {
+					return true, nil
+				}
+			case []string:
+				for _, v := range val {
+					if !tagValueContains(field.Tag, "ldap", "case_sensitive_value") {
+						v = strings.ToLower(v)
+						attrValue = strings.ToLower(attrValue)
+					}
+					if strings.HasPrefix(v, attrValue) {
+						return true, nil
+					}
+				}
+			}
+		}
+	default:
+		return false, fmt.Errorf("unsupported filter type '%T'", f)
 	}
 
-	// entry not found
-	if entry == nil {
-		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultNoSuchObject)
-		w.Write(res)
-
-		logger.Errorf("client [%d]: compare error: target entry not found", m.Client.Numero())
-		return
-	}
-
-	// compare
-	ok, err := doCompare(entry, attrName, string(r.Ava().AssertionValue()))
-	if err != nil {
-		res := ldapserver.NewCompareResponse(err.(LDAPError).ResultCode)
-		w.Write(res)
-
-		logger.Errorf("client [%d]: compare error: %s", m.Client.Numero(), err)
-		return
-	}
-	if !ok {
-		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareFalse)
-		w.Write(res)
-
-		logger.Infof("client [%d]: compare result=FALSE", m.Client.Numero())
-		return
-	}
-
-	// compare TRUE
-	res := ldapserver.NewCompareResponse(ldapserver.LDAPResultCompareTrue)
-	w.Write(res)
-
-	logger.Infof("client [%d]: compare result=TRUE", m.Client.Numero())
+	return false, nil
 }
 
-// handle modify
-func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName, groupsOUName string, b backend.Backend, ticker *time.Ticker, updateInterval time.Duration, logger *logrus.Logger) {
-	entries.RLock()
-	defer entries.RUnlock()
+// createSearchEntry creates ldap.SearchResultEntry from 'o' with attributes 'attrs' and name 'entryName'
+func createSearchEntry(o interface{}, attrs []string, entryName string) (e ldap.SearchResultEntry) {
+	// set entry name
+	e.SetObjectName(entryName)
 
-	r := m.GetModifyRequest()
-	logger.Infof("client [%d]: modify dn='%s'", m.Client.Numero(), r.Object())
-
-	// check modify entry dn
-	modifyEntry := normalizeEntry(string(r.Object()))
-	if !isCorrectDn(modifyEntry) {
-		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultInvalidDNSyntax)
-		w.Write(res)
-
-		logger.Errorf("client [%d]: modify error: wrong dn '%s'", m.Client.Numero(), r.Object())
-		return
+	// if no attrs set -> use * (all)
+	if len(attrs) == 0 {
+		attrs = append(attrs, "*")
 	}
 
-	// modify of domain or ou is not supported
-	if modifyEntry == baseDN || modifyEntry == "ou="+usersOUName+","+baseDN || modifyEntry == "ou="+groupsOUName+","+baseDN {
-		diagMessage := fmt.Sprintf("modify of '%s' is not supported", modifyEntry)
-		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultUnwillingToPerform)
-		res.SetDiagnosticMessage(diagMessage)
-		w.Write(res)
-
-		logger.Errorf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
-		return
-	}
-
-	// get ACLs
-	acl := clientACL{}
-	if addData := m.Client.GetAddData(); addData != nil {
-		acl = addData.(additionalData).acl
-	}
-
-	// non-admin can modify only own entry
-	if !acl.modify && modifyEntry != acl.bindEntry {
-		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultInsufficientAccessRights)
-		w.Write(res)
-
-		logger.Warnf("client [%d]: modify insufficient access", m.Client.Numero())
-		return
-	}
-
-	var oldEntry interface{}
-	modifyEntryAttr, modifyEntryName, modifyEntrySuffix := getEntryAttrValueSuffix(modifyEntry)
-	switch {
-	case modifyEntrySuffix == "ou="+usersOUName+","+baseDN:
-		for _, user := range entries.Users {
-			// handle stop signal
-			select {
-			case <-m.Done:
-				logger.Infof("client [%d]: leaving handleModify...", m.Client.Numero())
-				return
-			default:
+	for _, a := range attrs {
+		switch attr := strings.ToLower(a); attr {
+		case "entrydn":
+			e.AddAttribute("entryDN", ldap.AttributeValue(entryName))
+		case "+": // operational only
+			e.AddAttribute("entryDN", ldap.AttributeValue(entryName))
+			rValue := reflect.ValueOf(o)
+			for i := 0; i < rValue.NumField(); i++ {
+				field := rValue.Type().Field(i)
+				if tagValueContains(field.Tag, "ldap", "skip") {
+					continue
+				}
+				if !tagValueContains(field.Tag, "ldap", "operational") {
+					continue
+				}
+				tagValue := field.Tag.Get("json")
+				attrName, _, _ := strings.Cut(tagValue, ",")
+				e.AddAttribute(ldap.AttributeDescription(attrName), newLDAPAttributeValues(rValue.Field(i).Interface())...)
 			}
-
-			var cmpValue string
-			switch modifyEntryAttr {
-			case "cn":
-				cmpValue = user.CN
-			case "uid":
-				cmpValue = user.UID
+		case "*": // all except operational
+			rValue := reflect.ValueOf(o)
+			for i := 0; i < rValue.NumField(); i++ {
+				field := rValue.Type().Field(i)
+				if tagValueContains(field.Tag, "ldap", "skip") {
+					continue
+				}
+				if tagValueContains(field.Tag, "ldap", "operational") {
+					continue
+				}
+				tagValue := field.Tag.Get("json")
+				attrName, _, _ := strings.Cut(tagValue, ",")
+				e.AddAttribute(ldap.AttributeDescription(attrName), newLDAPAttributeValues(rValue.Field(i).Interface())...)
 			}
-
-			if cmpValue != modifyEntryName {
-				continue
-			}
-
-			oldEntry = user
-			break
-		}
-	case strings.HasPrefix(modifyEntry, "cn=") && modifyEntrySuffix == "ou="+groupsOUName+","+baseDN:
-		for _, group := range entries.Groups {
-			// handle stop signal
-			select {
-			case <-m.Done:
-				logger.Infof("client [%d]: leaving handleModify...", m.Client.Numero())
-				return
-			default:
-			}
-
-			if group.CN != modifyEntryName {
-				continue
-			}
-
-			oldEntry = group
-			break
-		}
-	}
-
-	// entry not found
-	if oldEntry == nil {
-		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultNoSuchObject)
-		w.Write(res)
-
-		logger.Errorf("client [%d]: modify error: target entry not found", m.Client.Numero())
-		return
-	}
-
-	// copy entry for modify
-	newEntry := oldEntry
-
-	for _, c := range r.Changes() {
-		// handle stop signal
-		select {
-		case <-m.Done:
-			logger.Infof("client [%d]: leaving handleModify...", m.Client.Numero())
-			return
 		default:
-		}
-
-		// check operation type
-		attrName := string(c.Modification().Type_())
-		opType := c.Operation().Int()
-		logger.Infof("client [%d]: modify op=%d attr=%s", m.Client.Numero(), c.Operation(), attrName)
-		if c.Operation().Int() != ldap.ModifyRequestChangeOperationReplace {
-			diagMessage := fmt.Sprintf("wrong operation %d: only 2 (replace) is supported", opType)
-			res := ldapserver.NewModifyResponse(ldapserver.LDAPResultUnwillingToPerform)
-			res.SetDiagnosticMessage(diagMessage)
-			w.Write(res)
-
-			logger.Errorf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
-			return
-		}
-
-		// modify
-		if err := doModify(&newEntry, attrName, c.Modification().Vals()); err != nil {
-			res := ldapserver.NewModifyResponse(err.(LDAPError).ResultCode)
-			w.Write(res)
-
-			logger.Errorf("client [%d]: modify error: %s", m.Client.Numero(), err)
-			return
+			field, found := reflect.TypeOf(o).FieldByNameFunc(func(n string) bool { return strings.EqualFold(n, attr) })
+			if !found {
+				continue
+			}
+			if tagValueContains(field.Tag, "ldap", "skip") {
+				continue
+			}
+			fieldValue := reflect.ValueOf(o).FieldByName(field.Name)
+			if fieldValue.IsValid() {
+				e.AddAttribute(ldap.AttributeDescription(a), newLDAPAttributeValues(fieldValue.Interface())...)
+			}
 		}
 	}
 
-	// update backend entry
-	if err := b.UpdateData(oldEntry, newEntry); err != nil {
-		diagMessage := fmt.Sprintf("error updating backend data: %s", err)
-		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultUnwillingToPerform)
-		res.SetDiagnosticMessage(diagMessage)
-		w.Write(res)
+	return
+}
 
-		logger.Errorf("client [%d]: modify error: %s", m.Client.Numero(), diagMessage)
-		return
+// newLDAPAttributeValues creates ldap attributes from an interface
+func newLDAPAttributeValues(in interface{}) (out []ldap.AttributeValue) {
+	switch in := in.(type) {
+	case uint:
+		out = append(out, ldap.AttributeValue(fmt.Sprint(in)))
+	case string:
+		out = append(out, ldap.AttributeValue(in))
+	case []string:
+		for _, v := range in {
+			out = append(out, ldap.AttributeValue(v))
+		}
 	}
-
-	// get updated entries
-	ticker.Reset(time.Millisecond)
-	<-ticker.C
-	ticker.Reset(updateInterval)
-
-	// modify OK
-	res := ldapserver.NewModifyResponse(ldapserver.LDAPResultSuccess)
-	w.Write(res)
-
-	logger.Infof("client [%d]: modify result=OK", m.Client.Numero())
+	return
 }

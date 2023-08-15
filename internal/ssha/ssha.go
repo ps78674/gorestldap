@@ -23,7 +23,7 @@ func ValidatePassword(password, hash string) (bool, error) {
 		return false, errors.New("no salt in hash")
 	}
 
-	newHashBytes := createSSHAHash(password, data[20:])
+	newHashBytes := createSSHAHash([]byte(password), data[20:])
 	if base64.StdEncoding.EncodeToString(newHashBytes) == hash[6:] {
 		return true, nil
 	}
@@ -32,9 +32,8 @@ func ValidatePassword(password, hash string) (bool, error) {
 }
 
 // createSSHAHash creates salted SSHA hash of a password
-func createSSHAHash(password string, salt []byte) []byte {
-	pass := []byte(password)
-	str := append(pass[:], salt[:]...)
+func createSSHAHash(pw []byte, salt []byte) []byte {
+	str := append(pw[:], salt[:]...)
 	sum := sha1.Sum(str)
 	result := append(sum[:], salt[:]...)
 	return result

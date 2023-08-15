@@ -114,8 +114,8 @@ func main() {
 	}()
 
 	// reset ticker / update data on SIGUSR1
+	chReload := make(chan os.Signal, 1)
 	go func() {
-		chReload := make(chan os.Signal, 1)
 		for {
 			signal.Notify(chReload, syscall.SIGUSR1)
 			<-chReload
@@ -126,14 +126,14 @@ func main() {
 	// graceful stop on CTRL+C / SIGINT / SIGTERM
 	chStop := make(chan os.Signal, 1)
 	signal.Notify(chStop, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(chStop)
 	<-chStop
+
+	signal.Stop(chReload)
 
 	logger.Info("shutting down")
 	httpServer.Shutdown()
 	logger.Debug("gracefully closing client connections")
 	ldapServer.Stop()
 	logger.Debug("all client connections closed")
-
-	signal.Stop(chStop)
-	close(chStop)
 }

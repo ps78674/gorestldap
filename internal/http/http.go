@@ -4,22 +4,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ps78674/gorestldap/internal/ticker"
 	"github.com/sirupsen/logrus"
 	"github.com/valyala/fasthttp"
 )
 
-func NewServer(callbackAuthToken string, updateInterval time.Duration, ticker *time.Ticker, logger *logrus.Logger) *fasthttp.Server {
+func NewServer(callbackAuthToken string, ticker *ticker.Ticker, logger *logrus.Logger) *fasthttp.Server {
 	return &fasthttp.Server{
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  120 * time.Second,
 		Handler: func(ctx *fasthttp.RequestCtx) {
-			handleCallback(ctx, callbackAuthToken, updateInterval, ticker, logger)
+			handleCallback(ctx, callbackAuthToken, ticker, logger)
 		},
 	}
 }
 
-func handleCallback(ctx *fasthttp.RequestCtx, callbackAuthToken string, updateInterval time.Duration, ticker *time.Ticker, logger *logrus.Logger) {
+func handleCallback(ctx *fasthttp.RequestCtx, callbackAuthToken string, ticker *ticker.Ticker, logger *logrus.Logger) {
 	switch path := string(ctx.Path()); path {
 	case "/callback":
 		logger.Debug("new callback request")
@@ -36,9 +37,7 @@ func handleCallback(ctx *fasthttp.RequestCtx, callbackAuthToken string, updateIn
 			return
 		}
 
-		ticker.Reset(time.Millisecond)
-		<-ticker.C
-		ticker.Reset(updateInterval)
+		ticker.Reset()
 	default:
 		ctx.Redirect("/callback", fasthttp.StatusMovedPermanently)
 	}

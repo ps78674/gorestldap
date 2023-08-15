@@ -2,15 +2,15 @@ package ldap
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/ps78674/gorestldap/internal/backend"
 	"github.com/ps78674/gorestldap/internal/data"
+	"github.com/ps78674/gorestldap/internal/ticker"
 	ldapserver "github.com/ps78674/ldapserver"
 	"github.com/sirupsen/logrus"
 )
 
-func NewServer(entries *data.Entries, baseDN, usersOUName, groupsOUName string, respectCritical bool, updateInterval time.Duration, backend backend.Backend, ticker *time.Ticker, logger *logrus.Logger) (*ldapserver.Server, error) {
+func NewServer(entries *data.Entries, baseDN, usersOUName, groupsOUName string, respectCritical bool, backend backend.Backend, ticker *ticker.Ticker, logger *logrus.Logger) (*ldapserver.Server, error) {
 	// create server
 	s := ldapserver.NewServer()
 
@@ -31,7 +31,7 @@ func NewServer(entries *data.Entries, baseDN, usersOUName, groupsOUName string, 
 		handleCompare(w, m, entries, baseDN, usersOUName, groupsOUName, logger)
 	})
 	routes.Modify(func(w ldapserver.ResponseWriter, m *ldapserver.Message) {
-		handleModify(w, m, entries, baseDN, usersOUName, groupsOUName, backend, ticker, updateInterval, logger)
+		handleModify(w, m, entries, baseDN, usersOUName, groupsOUName, backend, ticker, logger)
 	})
 
 	// attach routes to server

@@ -5,17 +5,17 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"time"
 
 	ldap "github.com/ps78674/goldap/message"
 	"github.com/ps78674/gorestldap/internal/backend"
 	"github.com/ps78674/gorestldap/internal/data"
+	"github.com/ps78674/gorestldap/internal/ticker"
 	ldapserver "github.com/ps78674/ldapserver"
 	"github.com/sirupsen/logrus"
 )
 
 // handle modify
-func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName, groupsOUName string, b backend.Backend, ticker *time.Ticker, updateInterval time.Duration, logger *logrus.Logger) {
+func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *data.Entries, baseDN, usersOUName, groupsOUName string, b backend.Backend, ticker *ticker.Ticker, logger *logrus.Logger) {
 	entries.RLock()
 	defer entries.RUnlock()
 
@@ -162,9 +162,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	}
 
 	// get updated entries
-	ticker.Reset(time.Millisecond)
-	<-ticker.C
-	ticker.Reset(updateInterval)
+	ticker.Reset()
 
 	// modify OK
 	res := ldapserver.NewModifyResponse(ldapserver.LDAPResultSuccess)

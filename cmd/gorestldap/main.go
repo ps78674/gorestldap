@@ -6,13 +6,13 @@ import (
 	"os/signal"
 	"path"
 	"syscall"
-	"time"
 
 	"github.com/ps78674/gorestldap/internal/backend"
 	"github.com/ps78674/gorestldap/internal/config"
 	"github.com/ps78674/gorestldap/internal/http"
 	"github.com/ps78674/gorestldap/internal/ldap"
 	"github.com/ps78674/gorestldap/internal/logger"
+	"github.com/ps78674/gorestldap/internal/ticker"
 	"github.com/valyala/fasthttp"
 )
 
@@ -51,11 +51,11 @@ func main() {
 	entries.Groups = groups
 
 	// create ticker
-	ticker := time.NewTicker(cfg.UpdateInterval)
+	ticker := ticker.NewTicker(cfg.UpdateInterval)
 	defer ticker.Stop()
 
 	// create new LDAP Server
-	ldapServer, err := ldap.NewServer(entries, cfg.BaseDN, cfg.UsersOUName, cfg.GroupsOUName, cfg.RespectCritical, cfg.UpdateInterval, backend, ticker, logger)
+	ldapServer, err := ldap.NewServer(entries, cfg.BaseDN, cfg.UsersOUName, cfg.GroupsOUName, cfg.RespectCritical, backend, ticker, logger)
 	if err != nil {
 		logger.Fatalf("error creating ldap server: %s", err)
 	}
@@ -81,7 +81,7 @@ func main() {
 	var httpServer *fasthttp.Server
 	if len(cfg.CallbackListenAddr) > 0 {
 		logger.Infof("starting http server on '%s'", cfg.CallbackListenAddr)
-		httpServer = http.NewServer(cfg.CallbackAuthToken, cfg.UpdateInterval, ticker, logger)
+		httpServer = http.NewServer(cfg.CallbackAuthToken, ticker, logger)
 		go func() {
 			if err := httpServer.ListenAndServe(cfg.CallbackListenAddr); err != nil {
 				logger.Fatalf("http server error: %s", err)
@@ -119,9 +119,7 @@ func main() {
 		for {
 			signal.Notify(chReload, syscall.SIGUSR1)
 			<-chReload
-			ticker.Reset(time.Millisecond)
-			<-ticker.C
-			ticker.Reset(cfg.UpdateInterval)
+			ticker.Reset()
 		}
 	}()
 

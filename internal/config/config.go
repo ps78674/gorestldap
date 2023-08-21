@@ -13,25 +13,25 @@ import (
 )
 
 type Config struct {
-	ConfigPath         string                 `docopt:"--config"`
-	BackendName        string                 `docopt:"--backend"`
-	BaseDN             string                 `docopt:"--basedn"`
-	ListenAddr         string                 `docopt:"--listen"`
-	UpdateInterval     time.Duration          `docopt:"--interval"`
-	LogPath            string                 `docopt:"--log"`
-	Debug              bool                   `docopt:"--debug"`
-	LogTimestamp       bool                   `yaml:"log_timestamp"`
-	LogCaller          bool                   `yaml:"log_caller"`
-	BackendDir         string                 `yaml:"backend_dir"`
-	Backends           map[string]interface{} `yaml:"backends"`
-	RespectCritical    bool                   `yaml:"respect_control_criticality"`
-	UsersOUName        string                 `yaml:"users_ou_name"`
-	GroupsOUName       string                 `yaml:"groups_ou_name"`
-	UseTLS             bool                   `yaml:"use_tls"`
-	ServerCert         string                 `yaml:"server_cert"`
-	ServerKey          string                 `yaml:"server_key"`
-	CallbackListenAddr string                 `yaml:"callback_listen_addr"`
-	CallbackAuthToken  string                 `yaml:"callback_auth_token"`
+	ConfigPath        string                 `docopt:"--config"`
+	BackendName       string                 `docopt:"--backend"`
+	BaseDN            string                 `docopt:"--basedn"`
+	ListenAddr        string                 `docopt:"--listen"`
+	UpdateInterval    time.Duration          `docopt:"--interval"`
+	LogPath           string                 `docopt:"--log"`
+	Debug             bool                   `docopt:"--debug"`
+	LogTimestamp      bool                   `yaml:"log_timestamp"`
+	LogCaller         bool                   `yaml:"log_caller"`
+	BackendDir        string                 `yaml:"backend_dir"`
+	Backends          map[string]interface{} `yaml:"backends"`
+	RespectCritical   bool                   `yaml:"respect_control_criticality"`
+	UsersOUName       string                 `yaml:"users_ou_name"`
+	GroupsOUName      string                 `yaml:"groups_ou_name"`
+	UseTLS            bool                   `yaml:"use_tls"`
+	ServerCert        string                 `yaml:"server_cert"`
+	ServerKey         string                 `yaml:"server_key"`
+	HTTPListenAddr    string                 `yaml:"http_listen_addr"`
+	CallbackAuthToken string                 `yaml:"callback_auth_token"`
 }
 
 const (

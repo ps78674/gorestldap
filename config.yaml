@@ -23,5 +23,6 @@ use_tls: false
 server_cert: server.crt
 server_key: server.key
 
-callback_listen_addr: localhost:8080
+http_listen_addr: localhost:8080
+
 callback_auth_token: qwertyuiop1234567890

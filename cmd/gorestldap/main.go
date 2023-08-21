@@ -79,11 +79,11 @@ func main() {
 
 	// create http server
 	var httpServer *fasthttp.Server
-	if len(cfg.CallbackListenAddr) > 0 {
-		logger.Infof("starting http server on '%s'", cfg.CallbackListenAddr)
+	if len(cfg.HTTPListenAddr) > 0 {
+		logger.Infof("starting http server on '%s'", cfg.HTTPListenAddr)
 		httpServer = http.NewServer(cfg.CallbackAuthToken, ticker, logger)
 		go func() {
-			if err := httpServer.ListenAndServe(cfg.CallbackListenAddr); err != nil {
+			if err := httpServer.ListenAndServe(cfg.HTTPListenAddr); err != nil {
 				logger.Fatalf("http server error: %s", err)
 			}
 		}()

@@ -9,6 +9,7 @@ import (
 	ldap "github.com/ps78674/goldap/message"
 	"github.com/ps78674/gorestldap/internal/backend"
 	"github.com/ps78674/gorestldap/internal/data"
+	"github.com/ps78674/gorestldap/internal/ldaputils"
 	"github.com/ps78674/gorestldap/internal/ticker"
 	ldapserver "github.com/ps78674/ldapserver"
 	"github.com/sirupsen/logrus"
@@ -23,7 +24,7 @@ func handleModify(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	logger.Infof("client [%d]: modify dn='%s'", m.Client.Numero(), r.Object())
 
 	// check modify entry dn
-	modifyEntry := NormalizeEntry(string(r.Object()))
+	modifyEntry := ldaputils.NormalizeEntry(string(r.Object()))
 	if !isCorrectDn(modifyEntry) {
 		res := ldapserver.NewModifyResponse(ldapserver.LDAPResultInvalidDNSyntax)
 		w.Write(res)

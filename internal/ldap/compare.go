@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ps78674/gorestldap/internal/data"
+	"github.com/ps78674/gorestldap/internal/ldaputils"
 	ldapserver "github.com/ps78674/ldapserver"
 	"github.com/sirupsen/logrus"
 )
@@ -20,7 +21,7 @@ func handleCompare(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *
 	logger.Infof("client [%d]: compare dn='%s' attr='%s'", m.Client.Numero(), r.Entry(), attrName)
 
 	// check compare entry dn
-	compareEntry := NormalizeEntry(string(r.Entry()))
+	compareEntry := ldaputils.NormalizeEntry(string(r.Entry()))
 	if !isCorrectDn(compareEntry) {
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultInvalidDNSyntax)
 		w.Write(res)

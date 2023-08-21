@@ -8,6 +8,7 @@ import (
 	ldap "github.com/ps78674/goldap/message"
 	"github.com/ps78674/gorestldap/internal/config"
 	"github.com/ps78674/gorestldap/internal/data"
+	"github.com/ps78674/gorestldap/internal/ldaputils"
 	ldapserver "github.com/ps78674/ldapserver"
 	"github.com/sirupsen/logrus"
 )
@@ -107,7 +108,7 @@ func handleSearch(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *d
 	if len(r.BaseObject()) == 0 {
 		baseObject = baseDN
 	} else {
-		baseObject = NormalizeEntry(string(r.BaseObject()))
+		baseObject = ldaputils.NormalizeEntry(string(r.BaseObject()))
 	}
 
 	// get ACLs & search control
@@ -502,7 +503,7 @@ func applySearchFilter(o interface{}, f ldap.Filter) (bool, error) {
 		attrValue := string(filter.AssertionValue())
 
 		if strings.ToLower(attrName) == "entrydn" {
-			entry := NormalizeEntry(string(filter.AssertionValue()))
+			entry := ldaputils.NormalizeEntry(string(filter.AssertionValue()))
 			attrName, attrValue, _ = getEntryAttrValueSuffix(entry)
 		}
 

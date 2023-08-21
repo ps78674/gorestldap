@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	"github.com/ps78674/gorestldap/internal/data"
+	"github.com/ps78674/gorestldap/internal/ldaputils"
 	"github.com/ps78674/gorestldap/internal/ssha"
 	ldapserver "github.com/ps78674/ldapserver"
 	"github.com/sirupsen/logrus"
@@ -27,7 +28,7 @@ func handleBind(w ldapserver.ResponseWriter, m *ldapserver.Message, entries *dat
 	}
 
 	// check bind entry dn
-	bindEntry := NormalizeEntry(string(r.Name()))
+	bindEntry := ldaputils.NormalizeEntry(string(r.Name()))
 	if !isCorrectDn(bindEntry) {
 		res := ldapserver.NewCompareResponse(ldapserver.LDAPResultInvalidDNSyntax)
 		w.Write(res)

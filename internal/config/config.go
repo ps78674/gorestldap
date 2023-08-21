@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ps78674/docopt.go"
+	"github.com/ps78674/gorestldap/internal/ldaputils"
 	"gopkg.in/yaml.v3"
 )
 
@@ -87,6 +88,8 @@ func (c *Config) Init() error {
 		}
 	}
 
+	c.BaseDN = ldaputils.NormalizeEntry(c.BaseDN)
+
 	if len(c.UsersOUName) == 0 {
 		c.UsersOUName = defaultUsersOUName
 	}
@@ -94,9 +97,6 @@ func (c *Config) Init() error {
 	if len(c.GroupsOUName) == 0 {
 		c.GroupsOUName = defaultGroupsOUName
 	}
-
-	// normalize baseDN
-	// c.BaseDN = ldap.NormalizeEntry(c.BaseDN)
 
 	c.UsersOUName = strings.ToLower(c.UsersOUName)
 	c.GroupsOUName = strings.ToLower(c.GroupsOUName)

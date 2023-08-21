@@ -7,8 +7,7 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/ps78674/gorestldap/src/internal/data"
-	log "github.com/sirupsen/logrus"
+	"github.com/ps78674/gorestldap/internal/data"
 	"github.com/valyala/fasthttp"
 	"gopkg.in/yaml.v3"
 )
@@ -134,16 +133,12 @@ func doRequest(c *fasthttp.Client, url, token string, data []byte) ([]byte, erro
 		req.SetBodyRaw(data)
 	}
 
-	log.Debugf("requesting URL %s", url)
-
 	if err := c.Do(req, resp); err != nil {
 		return resp.Body(), err
 	}
 	if resp.StatusCode() != fasthttp.StatusOK {
 		return resp.Body(), fmt.Errorf("response code %d", resp.StatusCode())
 	}
-
-	log.Debugf("got response data with len=%d", len(resp.Body()))
 
 	return resp.Body(), nil
 }

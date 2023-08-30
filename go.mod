@@ -10,7 +10,7 @@ require (
 	github.com/ps78674/ldapserver v0.0.0-20230531083129-e297774315af
 	github.com/sirupsen/logrus v1.9.0
 	github.com/valyala/fasthttp v1.48.0
-	gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c
+	gopkg.in/yaml.v3 v3.0.0
 )
 
 require (
